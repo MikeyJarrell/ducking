@@ -445,12 +445,12 @@ if file_a and file_b:
             progress.progress(55, text="Processing Speaker B...")
 
             result_b = process_track(audio_b, sr_b, dtype_b, env_b, settings)
-            del audio_a, audio_b  # Free input audio
             progress.progress(75, text="Generating quality report...")
 
-            # Quality metrics
+            # Quality metrics (use original audio before freeing)
             input_lufs_a = measure_lufs(audio_a, sr_a)
             input_lufs_b = measure_lufs(audio_b, sr_b)
+            del audio_a, audio_b  # Free input audio after measuring
             output_lufs_a = measure_lufs_speech_only(result_a, sr_a, env_a)
             output_lufs_b = measure_lufs_speech_only(result_b, sr_b, env_b)
             peak_a = 20 * np.log10(np.max(np.abs(result_a)) + 1e-8)
