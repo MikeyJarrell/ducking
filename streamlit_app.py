@@ -99,18 +99,16 @@ def resample_to_16k(audio_mono, orig_sr):
 @st.cache_resource
 def load_vad_model():
     """Load Silero VAD model (cached across sessions)."""
-    model, utils = torch.hub.load(
-        repo_or_dir='snakers4/silero-vad',
-        model='silero_vad',
-        force_reload=False,
-        trust_repo=True
-    )
-    return model, utils
+    # Use the silero_vad pip package directly instead of torch.hub
+    # (torch.hub has a bug with Authorization headers on some platforms)
+    from silero_vad import load_silero_vad, get_speech_timestamps
+    model = load_silero_vad()
+    return model, get_speech_timestamps
 
 
 def get_speech_regions(model, utils, audio_16k, threshold=0.5):
     """Run VAD on 16 kHz mono audio, return speech timestamps."""
-    get_speech_timestamps = utils[0]
+    get_speech_timestamps = utils  # utils is the function itself
     audio_tensor = torch.from_numpy(audio_16k).float()
     timestamps = get_speech_timestamps(
         audio_tensor, model,
