@@ -1,0 +1,5 @@
+streamlit>=1.30.0
+torch>=2.0.0
+torchaudio>=2.0.0
+numpy>=1.20.0
+scipy>=1.7.0
