@@ -405,11 +405,30 @@ if file_a and file_b:
             torch.set_num_threads(1)
             progress.progress(5, text="Loading audio files...")
 
-            # Load audio
+            # Load audio — downsample to 24 kHz to save memory on the server
+            # (48 kHz float32 mono = 350 MB per 30 min; 24 kHz = 175 MB)
+            TARGET_SR = 24000
             file_a.seek(0)
             file_b.seek(0)
             sr_a, audio_a, dtype_a = load_audio_bytes(file_a)
             sr_b, audio_b, dtype_b = load_audio_bytes(file_b)
+
+            # Resample to TARGET_SR if higher (saves memory)
+            if sr_a > TARGET_SR:
+                audio_a = resample_poly(
+                    get_mono(audio_a),
+                    TARGET_SR // math.gcd(TARGET_SR, sr_a),
+                    sr_a // math.gcd(TARGET_SR, sr_a)
+                ).astype(np.float32)
+                sr_a = TARGET_SR
+            if sr_b > TARGET_SR:
+                audio_b = resample_poly(
+                    get_mono(audio_b),
+                    TARGET_SR // math.gcd(TARGET_SR, sr_b),
+                    sr_b // math.gcd(TARGET_SR, sr_b)
+                ).astype(np.float32)
+                sr_b = TARGET_SR
+
             mono_a = get_mono(audio_a)
             mono_b = get_mono(audio_b)
 
@@ -422,13 +441,15 @@ if file_a and file_b:
 
             progress.progress(10, text="Running VAD on Speaker A...")
 
-            # Run VAD
+            # Run VAD (at 16 kHz)
             audio_16k_a = resample_to_16k(mono_a, sr_a)
             regions_a = get_speech_regions(model, utils, audio_16k_a, settings['vad_threshold'])
+            del audio_16k_a  # Free memory
             progress.progress(20, text="Running VAD on Speaker B...")
 
             audio_16k_b = resample_to_16k(mono_b, sr_b)
             regions_b = get_speech_regions(model, utils, audio_16k_b, settings['vad_threshold'])
+            del audio_16k_b  # Free memory
             progress.progress(30, text="Building cross-track ducking envelopes...")
 
             # Build envelopes
@@ -438,11 +459,12 @@ if file_a and file_b:
             )
             progress.progress(35, text="Processing Speaker A...")
 
-            # Process tracks
+            # Process tracks one at a time to save memory
             result_a = process_track(audio_a, sr_a, dtype_a, env_a, settings)
             progress.progress(55, text="Processing Speaker B...")
 
             result_b = process_track(audio_b, sr_b, dtype_b, env_b, settings)
+            del audio_a, audio_b  # Free input audio
             progress.progress(75, text="Generating quality report...")
 
             # Quality metrics
