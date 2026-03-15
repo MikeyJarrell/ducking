@@ -468,53 +468,62 @@ if file_a and file_b:
 
             progress.progress(100, text="Done!")
 
-            # --- Results ---
-            st.success("Processing complete!")
-
-            # Quality report
-            st.markdown("### Quality Report")
-            report_data = {
-                "": ["LUFS (in → out)", "Peak (dBFS)", "Speech coverage", "Duration"],
-                "Speaker A": [
-                    f"{input_lufs_a:.1f} → {output_lufs_a:.1f}",
-                    f"{peak_a:.1f}",
-                    f"{coverage_a:.1f}%",
-                    f"{duration_a:.0f}s",
-                ],
-                "Speaker B": [
-                    f"{input_lufs_b:.1f} → {output_lufs_b:.1f}",
-                    f"{peak_b:.1f}",
-                    f"{coverage_b:.1f}%",
-                    f"{duration_b:.0f}s",
-                ],
+            # Store results in session state so they persist across reruns
+            # (clicking a download button triggers a rerun)
+            st.session_state['results'] = {
+                'wav_bytes_a': wav_bytes_a,
+                'wav_bytes_b': wav_bytes_b,
+                'name_a': name_a,
+                'name_b': name_b,
+                'report_data': {
+                    "": ["LUFS (in → out)", "Peak (dBFS)", "Speech coverage", "Duration"],
+                    "Speaker A": [
+                        f"{input_lufs_a:.1f} → {output_lufs_a:.1f}",
+                        f"{peak_a:.1f}",
+                        f"{coverage_a:.1f}%",
+                        f"{duration_a:.0f}s",
+                    ],
+                    "Speaker B": [
+                        f"{input_lufs_b:.1f} → {output_lufs_b:.1f}",
+                        f"{peak_b:.1f}",
+                        f"{coverage_b:.1f}%",
+                        f"{duration_b:.0f}s",
+                    ],
+                },
             }
-            st.table(report_data)
-
-            # Download buttons
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    f"Download {name_a}",
-                    wav_bytes_a,
-                    file_name=name_a,
-                    mime="audio/wav",
-                    use_container_width=True,
-                )
-            with col2:
-                st.download_button(
-                    f"Download {name_b}",
-                    wav_bytes_b,
-                    file_name=name_b,
-                    mime="audio/wav",
-                    use_container_width=True,
-                )
 
         except Exception as e:
             st.error(f"Error: {e}")
             raise
 
-else:
-    st.info("Upload both WAV files to get started.")
+elif not file_a or not file_b:
+    st.info("Upload both audio files to get started.")
+
+# --- Show results (persists across reruns) ---
+if 'results' in st.session_state:
+    r = st.session_state['results']
+    st.success("Processing complete!")
+
+    st.markdown("### Quality Report")
+    st.table(r['report_data'])
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            f"Download {r['name_a']}",
+            r['wav_bytes_a'],
+            file_name=r['name_a'],
+            mime="audio/wav",
+            use_container_width=True,
+        )
+    with col2:
+        st.download_button(
+            f"Download {r['name_b']}",
+            r['wav_bytes_b'],
+            file_name=r['name_b'],
+            mime="audio/wav",
+            use_container_width=True,
+        )
 
 # --- Footer ---
 st.markdown("---")
