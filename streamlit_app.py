@@ -405,30 +405,11 @@ if file_a and file_b:
             torch.set_num_threads(1)
             progress.progress(5, text="Loading audio files...")
 
-            # Load audio — downsample to 24 kHz to save memory on the server
-            # (48 kHz float32 mono = 350 MB per 30 min; 24 kHz = 175 MB)
-            TARGET_SR = 24000
+            # Load audio
             file_a.seek(0)
             file_b.seek(0)
             sr_a, audio_a, dtype_a = load_audio_bytes(file_a)
             sr_b, audio_b, dtype_b = load_audio_bytes(file_b)
-
-            # Resample to TARGET_SR if higher (saves memory)
-            if sr_a > TARGET_SR:
-                audio_a = resample_poly(
-                    get_mono(audio_a),
-                    TARGET_SR // math.gcd(TARGET_SR, sr_a),
-                    sr_a // math.gcd(TARGET_SR, sr_a)
-                ).astype(np.float32)
-                sr_a = TARGET_SR
-            if sr_b > TARGET_SR:
-                audio_b = resample_poly(
-                    get_mono(audio_b),
-                    TARGET_SR // math.gcd(TARGET_SR, sr_b),
-                    sr_b // math.gcd(TARGET_SR, sr_b)
-                ).astype(np.float32)
-                sr_b = TARGET_SR
-
             mono_a = get_mono(audio_a)
             mono_b = get_mono(audio_b)
 
