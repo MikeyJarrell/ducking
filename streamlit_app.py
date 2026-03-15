@@ -34,33 +34,37 @@ VAD_SAMPLE_RATE = 16000
 def load_audio_bytes(uploaded_file):
     """
     Load an audio file from an uploaded BytesIO object.
-    Supports WAV, MP3, FLAC, M4A, OGG via torchaudio.
+    Supports WAV (via scipy) and MP3, FLAC, OGG (via soundfile/ffmpeg).
     Returns (sample_rate, audio_float32, original_dtype).
     """
-    import torchaudio
-    import tempfile
-    import os
+    file_bytes = uploaded_file.read()
+    name = uploaded_file.name.lower()
 
-    # torchaudio needs a file path, so write to a temp file
-    suffix = os.path.splitext(uploaded_file.name)[1]
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(uploaded_file.read())
-        tmp_path = tmp.name
-
-    try:
-        # torchaudio loads as (channels, samples) float32 tensor
-        waveform, sr = torchaudio.load(tmp_path)
-        audio = waveform.numpy().T  # Shape: (samples, channels) or (samples,)
-        if audio.ndim == 2 and audio.shape[1] == 1:
-            audio = audio[:, 0]  # Squeeze single-channel to 1D
-        # Output as float32 in [-1, 1] (torchaudio's default)
-        audio = audio.astype(np.float32)
-        # Use int16 as the output dtype (standard for WAV download)
+    if name.endswith('.wav'):
+        # Use scipy for WAV files (fast, no extra dependencies)
+        sr, data = wavfile.read(io.BytesIO(file_bytes))
+        original_dtype = data.dtype
+        if data.dtype == np.int16:
+            audio = data.astype(np.float32) / 32768.0
+        elif data.dtype == np.int32:
+            audio = data.astype(np.float32) / 2147483648.0
+        elif data.dtype == np.float32:
+            audio = data.copy()
+        elif data.dtype == np.float64:
+            audio = data.astype(np.float32)
+        else:
+            raise ValueError(f"Unsupported WAV format: {data.dtype}")
+    else:
+        # Use soundfile for MP3, FLAC, OGG, etc.
+        import soundfile as sf
+        audio, sr = sf.read(io.BytesIO(file_bytes), dtype='float32')
         original_dtype = np.dtype('int16')
-    finally:
-        os.unlink(tmp_path)
 
-    return sr, audio, original_dtype
+    # Squeeze single-channel stereo to mono array
+    if audio.ndim == 2 and audio.shape[1] == 1:
+        audio = audio[:, 0]
+
+    return sr, audio.astype(np.float32), original_dtype
 
 
 def audio_to_wav_bytes(sr, audio, original_dtype):
