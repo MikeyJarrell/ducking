@@ -15,7 +15,6 @@ import math
 
 import numpy as np
 import streamlit as st
-import torch
 from scipy.io import wavfile
 from scipy.signal import resample_poly, sosfilt
 from scipy.ndimage import uniform_filter1d, minimum_filter1d
@@ -108,6 +107,7 @@ def load_vad_model():
 
 def get_speech_regions(model, utils, audio_16k, threshold=0.5):
     """Run VAD on 16 kHz mono audio, return speech timestamps."""
+    import torch
     get_speech_timestamps = utils  # utils is the function itself
     audio_tensor = torch.from_numpy(audio_16k).float()
     timestamps = get_speech_timestamps(
@@ -397,6 +397,7 @@ if file_a and file_b:
         try:
             # Load VAD model (cached)
             model, utils = load_vad_model()
+            import torch
             torch.set_num_threads(1)
             progress.progress(5, text="Loading audio files...")
 
