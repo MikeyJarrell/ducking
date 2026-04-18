@@ -80,6 +80,17 @@ pip install torch numpy scipy silero-vad
 python ducking_app.py
 ```
 
+### Mac: install as a real app
+
+If you're on a Mac and want to launch Ducking from Spotlight or the Applications folder like any other app, run:
+
+```
+chmod +x make-app.sh
+./make-app.sh
+```
+
+This builds `Ducking.app` (with icon) and installs it to `/Applications`. Requires `python3` on your `PATH` with the dependencies above already installed.
+
 ## Supported file formats
 
 - **WAV** (recommended — lossless, best quality)
