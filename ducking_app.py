@@ -183,7 +183,7 @@ def _smooth_envelope(gain, sr, fade_ms=75):
 
 def build_cross_ducking_envelopes(mono_a, mono_b, sr,
                                    speech_regions_a, speech_regions_b,
-                                   fade_ms=75, duck_db=-20):
+                                   fade_ms=75, duck_db=-20, dominance_db=3.0):
     """
     Build gain envelopes for both tracks using cross-track comparison.
 
@@ -191,11 +191,11 @@ def build_cross_ducking_envelopes(mono_a, mono_b, sr,
     pick up both speakers), this compares RMS levels between the two tracks
     to determine who is actually speaking.
 
-    Logic per frame:
-    - Neither VAD active: both tracks at duck_gain (room tone level)
-    - Either VAD active + track A louder by >3 dB: A=1.0, B=duck_gain
-    - Either VAD active + track B louder by >3 dB: B=1.0, A=duck_gain
-    - Either VAD active + tracks within 3 dB: both=1.0 (both speaking)
+    Logic per frame (with dominance_db as the "clearly louder" threshold):
+    - Either VAD active + track A louder by >dominance_db: A=1.0, B=duck_gain
+    - Either VAD active + track B louder by >dominance_db: B=1.0, A=duck_gain
+    - Otherwise (no VAD, or levels within dominance_db): both=1.0
+      (genuine crosstalk or room tone — don't duck either)
 
     Returns (envelope_a, envelope_b) — per-sample gain arrays with smooth fades.
     """
@@ -219,25 +219,18 @@ def build_cross_ducking_envelopes(mono_a, mono_b, sr,
     # Step 3: Compute level ratio in dB (positive = A louder, negative = B louder)
     ratio_db = 20 * np.log10(rms_a / (rms_b + 1e-8))
 
-    # Step 4: Classify each sample and assign gains
-    #   Threshold of 3 dB: if one mic is >3 dB louder, that speaker is primary
-    gain_a = np.full(length, duck_gain, dtype=np.float32)
-    gain_b = np.full(length, duck_gain, dtype=np.float32)
+    # Step 4: Default both envelopes to full gain, then duck the quieter mic
+    # only when the other is clearly dominant (and at least one VAD is firing).
+    gain_a = np.ones(length, dtype=np.float32)
+    gain_b = np.ones(length, dtype=np.float32)
 
-    # When either VAD detects speech and A is clearly louder → host speaking
-    a_primary = either_speech & (ratio_db > 3.0)
-    gain_a[a_primary] = 1.0
+    # A is clearly louder → duck B
+    a_primary = either_speech & (ratio_db > dominance_db)
     gain_b[a_primary] = duck_gain
 
-    # When either VAD detects speech and B is clearly louder → guest speaking
-    b_primary = either_speech & (ratio_db < -3.0)
-    gain_b[b_primary] = 1.0
+    # B is clearly louder → duck A
+    b_primary = either_speech & (ratio_db < -dominance_db)
     gain_a[b_primary] = duck_gain
-
-    # When either VAD detects speech and levels are similar → both speaking
-    both_active = either_speech & (ratio_db >= -3.0) & (ratio_db <= 3.0)
-    gain_a[both_active] = 1.0
-    gain_b[both_active] = 1.0
 
     # Step 5: Apply cosine fades at transitions to prevent clicks
     gain_a = _smooth_envelope(gain_a, sr, fade_ms)
@@ -752,7 +745,6 @@ class DuckingApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Podcast Mic Ducking")
-        self.resizable(False, False)
 
         # Processing state
         self.processing = False
@@ -766,6 +758,32 @@ class DuckingApp(tk.Tk):
         self._report = ""
 
         self._build_gui()
+
+        # Force a layout pass so the window sizes itself to fit all widgets
+        # before we lock the size — otherwise resizable(False, False) freezes
+        # the window at its initial near-zero geometry, and clicks below the
+        # visible-but-not-claimed area are lost.
+        self.update_idletasks()
+        self.resizable(False, False)
+
+        # Force window to become the frontmost foreground app on first Map event.
+        # macOS sometimes fails to activate shell-wrapped Python GUIs properly,
+        # which breaks click-to-focus on widgets.
+        self.bind('<Map>', self._on_first_map, add='+')
+        self._mapped_once = False
+
+    def _on_first_map(self, event):
+        if self._mapped_once:
+            return
+        self._mapped_once = True
+        try:
+            from AppKit import NSApp, NSApplicationActivationPolicyRegular
+            NSApp.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+            NSApp.activateIgnoringOtherApps_(True)
+        except Exception:
+            pass
+        self.lift()
+        self.focus_force()
 
     def _build_gui(self):
         """Build all the GUI widgets."""
@@ -834,7 +852,13 @@ class DuckingApp(tk.Tk):
         self.duck_db_var = tk.StringVar(value="-20")
         ttk.Entry(duck_frame, textvariable=self.duck_db_var, width=6).grid(
             row=0, column=6, padx=(5, 0))
-        ttk.Label(duck_frame, text="dB").grid(row=0, column=7, padx=(2, 0))
+        ttk.Label(duck_frame, text="dB").grid(row=0, column=7, padx=(2, 15))
+
+        ttk.Label(duck_frame, text="Dominance:").grid(row=0, column=8, sticky="w")
+        self.dominance_db_var = tk.StringVar(value="3")
+        ttk.Entry(duck_frame, textvariable=self.dominance_db_var, width=6).grid(
+            row=0, column=9, padx=(5, 0))
+        ttk.Label(duck_frame, text="dB").grid(row=0, column=10, padx=(2, 0))
         row += 1
 
         # --- Processing Chain ---
@@ -975,6 +999,7 @@ class DuckingApp(tk.Tk):
             'vad_threshold': float(self.vad_thresh_var.get()),
             'fade_ms': float(self.fade_var.get()),
             'duck_db': float(self.duck_db_var.get()),
+            'dominance_db': float(self.dominance_db_var.get()),
             'gain_enabled': self.gain_enabled.get(),
             'gain_db': float(self.gain_db_var.get()),
             'comp_enabled': self.comp_enabled.get(),
@@ -1090,7 +1115,8 @@ class DuckingApp(tk.Tk):
                 mono_a, mono_b, sr_a,
                 regions_a, regions_b,
                 fade_ms=settings['fade_ms'],
-                duck_db=settings['duck_db']
+                duck_db=settings['duck_db'],
+                dominance_db=settings['dominance_db']
             )
             self._update_progress(28)
 

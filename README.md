@@ -89,7 +89,9 @@ chmod +x make-app.sh
 ./make-app.sh
 ```
 
-This builds `Ducking.app` (with icon) and installs it to `/Applications`. Requires `python3` on your `PATH` with the dependencies above already installed.
+This builds a standalone `Ducking.app` using py2app and installs it to `/Applications`. The bundle embeds Python, PyTorch, and all dependencies — no system Python needed at runtime — so it's ~600 MB but self-contained.
+
+Requires **python.org Python 3.12** (from [python.org/downloads](https://www.python.org/downloads/)) — anaconda's Python is not a framework build and won't work with py2app.
 
 ## Supported file formats
 

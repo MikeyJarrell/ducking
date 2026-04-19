@@ -3,3 +3,7 @@ __pycache__/
 .DS_Store
 *.wav
 *.WAV
+build/
+dist/
+.venv-build/
+Ducking.icns
