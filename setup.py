@@ -28,6 +28,10 @@ OPTIONS = {
     },
     'packages': ['torch', 'numpy', 'scipy', 'silero_vad', 'soundfile'],
     'includes': ['tkinter'],
+    # silero-vad imports torchaudio only for optional file I/O. Ducking uses
+    # scipy instead, so excluding it avoids a broken compiled extension and
+    # makes the standalone app smaller.
+    'excludes': ['torchaudio'],
 }
 
 setup(

@@ -45,25 +45,22 @@ echo "Building .app bundle (takes several minutes)..."
 rm -rf build dist
 .venv-build/bin/python setup.py py2app
 
-# 4. Patch torchaudio's stale rpath (points at the Linux CI machine that
-#    built the wheel) so it can find torch's dylibs inside the bundle
-TA_LIB=dist/Ducking.app/Contents/Resources/lib/python3.12/torchaudio/lib
-for f in "$TA_LIB/_torchaudio.abi3.so" "$TA_LIB/libtorchaudio.abi3.so"; do
-    if [ -f "$f" ]; then
-        install_name_tool -add_rpath @loader_path/../../torch/lib "$f" 2>/dev/null || true
-    fi
-done
+# 4. Stage outside Documents before signing. macOS file-provider metadata in
+#    Documents is restored immediately after xattr removal and invalidates app
+#    signatures, so ditto copies the bundle without that metadata first.
+STAGE_DIR=$(mktemp -d)
+trap 'rm -rf "$STAGE_DIR"' EXIT
+ditto --norsrc dist/Ducking.app "$STAGE_DIR/Ducking.app"
+xattr -cr "$STAGE_DIR/Ducking.app"
+codesign --force --deep --sign - "$STAGE_DIR/Ducking.app"
+codesign --verify --deep --strict "$STAGE_DIR/Ducking.app"
 
-# 5. Strip extended attributes and deep-sign — required for macOS TCC
-#    (permissions) to remember grants across launches
-xattr -cr dist/Ducking.app
-codesign --force --deep --sign - dist/Ducking.app
-
-# 6. Install to /Applications (old bundle moved to Trash for rollback)
+# 5. Install to /Applications (old bundle moved to Trash for rollback)
 if [ -d /Applications/Ducking.app ]; then
     mv /Applications/Ducking.app "$HOME/.Trash/Ducking-$(date +%s).app"
 fi
-cp -R dist/Ducking.app /Applications/
+ditto --norsrc "$STAGE_DIR/Ducking.app" /Applications/Ducking.app
+codesign --verify --deep --strict /Applications/Ducking.app
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Ducking.app >/dev/null 2>&1 || true
 
 echo ""

@@ -8,7 +8,7 @@ Takes two podcast microphone audio files (one per speaker) and:
 3. Optionally applies gain, compression, limiting, and LUFS normalization
 
 Run with: python ducking_app.py
-On first run, the Silero VAD model (~2 MB) will be downloaded automatically.
+The Silero VAD model is bundled with the installed silero-vad package.
 
 Dependencies (all in conda base env):
   - torch, numpy, scipy, tkinter (built-in)
@@ -16,8 +16,10 @@ Dependencies (all in conda base env):
 
 import os
 import math
+import sys
 import threading
 import tkinter as tk
+import types
 from tkinter import ttk, filedialog, messagebox
 
 import numpy as np
@@ -106,16 +108,22 @@ def resample_to_16k(audio_mono, orig_sr):
 
 def load_vad_model():
     """
-    Load Silero VAD model via torch hub.
-    Downloads the model on first run (~2 MB), then uses cached version.
-    Returns (model, utils) where utils contains helper functions.
+    Load Silero VAD from the installed package without network access.
+
+    Returns the model and the speech-timestamp helper function. The package
+    ships the model file, so the desktop app does not depend on GitHub or the
+    user's Torch Hub cache when processing audio.
     """
-    model, utils = torch.hub.load(
-        repo_or_dir='snakers4/silero-vad',
-        model='silero_vad',
-        force_reload=False
-    )
-    return model, utils
+    # silero-vad imports torchaudio for optional file I/O helpers. Ducking uses
+    # scipy for file I/O, and loading torchaudio's compiled extension inside a
+    # py2app bundle causes macOS to kill the process. A minimal placeholder lets
+    # us import only the model and timestamp helpers we actually need.
+    sys.modules.setdefault("torchaudio", types.ModuleType("torchaudio"))
+
+    from silero_vad import load_silero_vad, get_speech_timestamps
+
+    model = load_silero_vad()
+    return model, get_speech_timestamps
 
 
 def get_speech_regions(model, utils, audio_16k, threshold=0.5):
@@ -124,8 +132,8 @@ def get_speech_regions(model, utils, audio_16k, threshold=0.5):
     Returns a list of dicts: [{'start': sample_idx, 'end': sample_idx}, ...]
     where start/end are sample positions at 16 kHz.
     """
-    # utils[0] is the get_speech_timestamps function from Silero
-    get_speech_timestamps = utils[0]
+    # The second value returned by load_vad_model is the helper function.
+    get_speech_timestamps = utils
 
     audio_tensor = torch.from_numpy(audio_16k).float()
 
@@ -1070,7 +1078,7 @@ class DuckingApp(tk.Tk):
     def _run_processing(self, settings):
         """Process both tracks with cross-track ducking. Runs in a background thread."""
         try:
-            # Load VAD model (downloads on first run)
+            # Load the VAD model bundled with the installed silero-vad package.
             self._update_status("Loading VAD model...")
             if self.vad_model is None:
                 self.vad_model, self.vad_utils = load_vad_model()
