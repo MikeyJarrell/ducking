@@ -11,7 +11,7 @@ pinned: false
 
 # Podcast Mic Ducking
 
-**Clean up your two-mic podcast recordings automatically.**
+Clean up two-microphone podcast recordings automatically.
 
 When you record a podcast with two people in the same room, each microphone picks up both voices. The person sitting farther away sounds echoey or distant on the other mic. This app fixes that.
 
@@ -19,11 +19,40 @@ When you record a podcast with two people in the same room, each microphone pick
 
 You give it two audio files — one from each microphone. The app figures out who's talking at each moment and turns down the mic that isn't being used. This removes the echo and background bleed, so each speaker sounds clean and close.
 
-It also:
+The default **Natural cleanup** preset changes only the mic-bleed level. It
+does not boost, compress, or limit either voice.
 
-- **Evens out the volume** so quiet words and loud words are closer to the same level
-- **Sets the overall loudness** to the standard that podcast apps like Spotify and Apple Podcasts expect
-- **Prevents distortion** by making sure nothing is too loud
+The **Podcast-ready** preset removes low-frequency rumble, matches the two
+speakers' levels, applies gentle compression, and creates a combined mono
+master. The master targets -16 LUFS integrated loudness and a -1 dBFS true-peak
+ceiling, following [Apple Podcasts' audio guidance](https://podcasters.apple.com/support/893-audio-requirements).
+
+Every automatic stage has an acceptance check. Ducking must measurably reduce
+the non-speaker mic while leaving the active mic unchanged; the unmastered mix
+must retain both speakers; and the master must pass its loudness, true-peak,
+limiter-activity, duration, and speaker-presence checks. Uncertain speaker
+detection gets one conservative retry. Natural cleanup then bypasses unsafe
+ducking, while Podcast-ready stops without creating a misleading mastered file.
+
+## Which settings should I use?
+
+Start with **Natural cleanup (recommended)**. It reduces the unused mic by 12
+dB and uses 150 ms transitions, which keeps words intact and leaves the source
+recording's tone and dynamics alone.
+
+Use **Podcast-ready** when you want Ducking to handle the routine audio work.
+It saves the two cleaned stems and a separate mastered mix. Natural cleanup is
+for workflows where another tool will handle level matching and mastering.
+
+The advanced controls rarely need adjustment:
+
+- **Duck level:** Use -9 dB for more room sound or -15 dB for stronger bleed removal.
+
+- **Dominance:** Raise this if the app switches speakers too eagerly. Lower it if one speaker is rarely recognized.
+
+- **Fade:** Use 100 to 200 ms for speech. Shorter fades can sound choppy.
+
+- **Voice activity detection threshold:** Leave this at 0.5 unless the room is unusually noisy.
 
 ## Try it online
 
