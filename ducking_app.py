@@ -34,7 +34,10 @@ import torch
 # ============================================================
 
 VAD_SAMPLE_RATE = 16000  # Silero VAD expects 16 kHz input
-MASTER_LIMITING_MAX_PERCENT = 6.0
+PODCAST_STEM_TARGET_LUFS = -19.0
+PODCAST_MASTER_TARGET_LUFS = -18.0
+MASTER_LIMITING_MAX_PERCENT = 1.0
+MASTER_SPEAKER_BALANCE_MAX_DB = 3.0
 
 
 # ============================================================
@@ -663,8 +666,8 @@ def apply_lufs_normalization(
     (where envelope > 0.5). This avoids the problem where ducked silence
     drags down the LUFS measurement and causes over-boosting.
 
-    The final podcast master targets -16 LUFS. Track-level calls may use a
-    quieter staging target before the tracks are mixed.
+    Podcast stems and the final master use separate targets so speaker
+    balancing stays stable when the final delivery target changes.
     """
     if envelope is not None:
         current_lufs = measure_lufs_speech_only(audio, sr, envelope)
@@ -798,23 +801,11 @@ def validate_mix_stage(track_a, track_b, envelope_a, envelope_b, sr):
     }
 
 
-def _master_candidate(premix, sr, target_lufs, true_peak_ceiling_db, compressor_ratio):
-    """Create one mastering candidate for later acceptance testing."""
-    master = apply_compressor(
-        premix,
-        sr,
-        threshold_db=-24.0,
-        ratio=compressor_ratio,
-        attack_ms=10,
-        release_ms=150,
-    )
-    master = apply_lufs_normalization(
-        master,
-        sr,
-        target_lufs=target_lufs,
-        ceiling_db=true_peak_ceiling_db,
-        peak_percentile=99.9,
-    )
+def _master_candidate(premix, sr, target_lufs, true_peak_ceiling_db):
+    """Apply one fixed gain change and the final true-peak safety limiter."""
+    premix_lufs = measure_lufs(premix, sr)
+    fixed_gain_db = target_lufs - premix_lufs
+    master = apply_gain_db(premix, fixed_gain_db)
     master, limited_over_1_pct = apply_true_peak_limiter(
         master,
         sr,
@@ -822,45 +813,18 @@ def _master_candidate(premix, sr, target_lufs, true_peak_ceiling_db, compressor_
         release_ms=15,
     )
 
-    # A peak already touching the ceiling does not mean loudness is immutable:
-    # gain can be added and the isolated peaks limited again. Iterate only while
-    # the program is audibly short of target, and let the acceptance gate reject
-    # the candidate if this requires sustained limiting.
-    loudness_correction_passes = 0
     integrated_lufs = measure_lufs(master, sr)
-    for _ in range(3):
-        loudness_shortfall_db = target_lufs - integrated_lufs
-        if loudness_shortfall_db <= 0.05:
-            break
-        master = apply_gain_db(master, loudness_shortfall_db)
-        master, correction_limited_pct = apply_true_peak_limiter(
-            master,
-            sr,
-            ceiling_db=true_peak_ceiling_db,
-            release_ms=15,
-        )
-        # Repeated passes often revisit the same isolated transients. Adding
-        # percentages double-counts those time regions and can make a gentle
-        # result look like sustained limiting. Keep the widest affected share;
-        # loudness_correction_passes separately records repeated work.
-        limited_over_1_pct = max(limited_over_1_pct, correction_limited_pct)
-        loudness_correction_passes += 1
-
-        # Downsampling a safely limited oversampled signal can create a small
-        # reconstruction overshoot. Remove only that measured excess.
-        true_peak_db = 20 * np.log10(measure_true_peak(master) + 1e-12)
-        if true_peak_db > true_peak_ceiling_db:
-            master = apply_gain_db(master, true_peak_ceiling_db - true_peak_db)
-        integrated_lufs = measure_lufs(master, sr)
-
     true_peak_db = 20 * np.log10(measure_true_peak(master) + 1e-12)
+    plr_db = true_peak_db - integrated_lufs
 
     return master.astype(np.float32), {
+        "premix_lufs": float(premix_lufs),
+        "fixed_gain_db": float(fixed_gain_db),
         "integrated_lufs": float(integrated_lufs),
         "true_peak_db": float(true_peak_db),
         "limited_over_1_pct": float(limited_over_1_pct),
-        "compressor_ratio": float(compressor_ratio),
-        "loudness_correction_passes": loudness_correction_passes,
+        "plr_db": float(plr_db),
+        "master_compressor_ratio": None,
     }
 
 
@@ -868,79 +832,53 @@ def build_podcast_master(
     track_a,
     track_b,
     sr,
-    target_lufs=-16.0,
+    target_lufs=PODCAST_MASTER_TARGET_LUFS,
     true_peak_ceiling_db=-1.0,
     speaker_a_mask=None,
     speaker_b_mask=None,
 ):
     """Build and accept only a master that passes every final quality gate."""
     premix = mix_to_mono(track_a) + mix_to_mono(track_b)
-    attempts = []
-
-    # Start gently. If the loudness target and peak ceiling are incompatible,
-    # progressively stronger bus compression is a bounded automatic remedy.
-    for compressor_ratio in (2.0, 3.0, 4.0, 6.0):
-        master, diagnostics = _master_candidate(
-            premix,
-            sr,
-            target_lufs,
-            true_peak_ceiling_db,
-            compressor_ratio,
-        )
-        speaker_a_db = _masked_rms_db(master, speaker_a_mask)
-        speaker_b_db = _masked_rms_db(master, speaker_b_mask)
-        presence_required = speaker_a_mask is not None or speaker_b_mask is not None
-        speaker_balance_db = abs(speaker_a_db - speaker_b_db)
-
-        checks = {
-            "finite_audio": bool(np.all(np.isfinite(master))),
-            "duration_preserved": len(master) == len(premix),
-            "loudness_on_target": abs(diagnostics["integrated_lufs"] - target_lufs)
-            <= 1.0,
-            "true_peak_safe": diagnostics["true_peak_db"]
-            <= true_peak_ceiling_db + 0.05,
-            # The nine-episode Backstory regression corpus includes one
-            # high-crest-factor outlier at 5.90%. Keep a narrow 6% ceiling so
-            # that verified case passes without accepting sustained limiting.
-            "limiting_gentle": diagnostics["limited_over_1_pct"]
-            <= MASTER_LIMITING_MAX_PERCENT,
-            "both_speakers_audible": not presence_required
-            or (
-                np.isfinite(speaker_a_db)
-                and np.isfinite(speaker_b_db)
-                and min(speaker_a_db, speaker_b_db) > -50
-                and speaker_balance_db <= 10
-            ),
+    master, diagnostics = _master_candidate(
+        premix, sr, target_lufs, true_peak_ceiling_db
+    )
+    speaker_a_db = _masked_rms_db(master, speaker_a_mask)
+    speaker_b_db = _masked_rms_db(master, speaker_b_mask)
+    presence_required = speaker_a_mask is not None or speaker_b_mask is not None
+    speaker_balance_db = abs(speaker_a_db - speaker_b_db)
+    checks = {
+        "finite_audio": bool(np.all(np.isfinite(master))),
+        "duration_preserved": len(master) == len(premix),
+        "no_clipped_samples": float(np.max(np.abs(master))) < 1.0,
+        "loudness_on_target": abs(diagnostics["integrated_lufs"] - target_lufs) <= 1.0,
+        "true_peak_safe": diagnostics["true_peak_db"] <= true_peak_ceiling_db + 0.05,
+        "limiting_gentle": diagnostics["limited_over_1_pct"]
+        <= MASTER_LIMITING_MAX_PERCENT,
+        "both_speakers_audible": not presence_required
+        or (
+            np.isfinite(speaker_a_db)
+            and np.isfinite(speaker_b_db)
+            and min(speaker_a_db, speaker_b_db) > -50
+            and speaker_balance_db <= MASTER_SPEAKER_BALANCE_MAX_DB
+        ),
+    }
+    diagnostics.update(
+        {
+            "checks": checks,
+            "checks_passed": bool(all(checks.values())),
+            "speaker_a_db": speaker_a_db,
+            "speaker_b_db": speaker_b_db,
+            "speaker_balance_db": speaker_balance_db,
         }
-        attempts.append(
-            {
-                "compressor_ratio": compressor_ratio,
-                "checks": checks,
-                "integrated_lufs": diagnostics["integrated_lufs"],
-                "true_peak_db": diagnostics["true_peak_db"],
-                "limited_over_1_pct": diagnostics["limited_over_1_pct"],
-            }
-        )
-        if all(checks.values()):
-            diagnostics.update(
-                {
-                    "checks": checks,
-                    "checks_passed": True,
-                    "attempts": attempts,
-                    "speaker_a_db": speaker_a_db,
-                    "speaker_b_db": speaker_b_db,
-                    "speaker_balance_db": speaker_balance_db,
-                }
-            )
-            return master, diagnostics
+    )
+    if diagnostics["checks_passed"]:
+        return master, diagnostics
 
-    failed_checks = [
-        name for name, passed in attempts[-1]["checks"].items() if not passed
-    ]
+    failed_checks = [name for name, passed in checks.items() if not passed]
     raise ValueError(
-        "The final master failed its automatic quality checks after four "
-        f"compression attempts ({', '.join(failed_checks)}). The cleaned stems "
-        "were preserved, but no file was labeled podcast-ready."
+        "The final fixed-gain master failed its automatic quality checks "
+        f"({', '.join(failed_checks)}). The cleaned stems were preserved, but "
+        "no file was labeled podcast-ready."
     )
 
 
@@ -1005,11 +943,11 @@ def validate_track(
     checks["no_clipping"] = output_peak <= 1.001
 
     # 2. LUFS on target (only if LUFS normalization was enabled)
-    # Track stems sit 3 dB below the final master target before they are mixed.
+    # Podcast stems use a fixed staging target before the final mix.
     if settings["lufs_enabled"]:
         expected_lufs = settings["lufs_target"]
         if settings.get("master_enabled", False):
-            expected_lufs -= 3.0
+            expected_lufs = PODCAST_STEM_TARGET_LUFS
         checks["lufs_on_target"] = abs(output_lufs - expected_lufs) <= 2.0
     else:
         checks["lufs_on_target"] = True  # Skip if not enabled
@@ -1259,9 +1197,7 @@ def process_track_audio(
 
     track_target = settings["lufs_target"]
     if settings.get("master_enabled", False):
-        # Two non-overlapping -19 LUFS stems combine into a program near -19
-        # LUFS, leaving a modest final adjustment to the -16 LUFS master target.
-        track_target -= 3.0
+        track_target = PODCAST_STEM_TARGET_LUFS
 
     # Give the compressor a predictable input level. Three decibels of
     # headroom prevents the first pass from being mistaken for finished audio.
@@ -1549,7 +1485,7 @@ class DuckingApp(tk.Tk):
         ttk.Label(comp_frame, text="dB").grid(row=0, column=3)
 
         ttk.Label(comp_frame, text="Ratio:").grid(row=0, column=4, padx=(10, 0))
-        self.comp_ratio_var = tk.StringVar(value="2.5")
+        self.comp_ratio_var = tk.StringVar(value="2.0")
         ttk.Entry(comp_frame, textvariable=self.comp_ratio_var, width=4).grid(
             row=0, column=5, padx=2
         )
@@ -1599,7 +1535,7 @@ class DuckingApp(tk.Tk):
             row=0, column=0, sticky="w"
         )
         ttk.Label(lufs_frame, text="Target:").grid(row=0, column=1, padx=(10, 0))
-        self.lufs_target_var = tk.StringVar(value="-16")
+        self.lufs_target_var = tk.StringVar(value="-18")
         ttk.Entry(lufs_frame, textvariable=self.lufs_target_var, width=6).grid(
             row=0, column=2, padx=2
         )
@@ -1642,7 +1578,7 @@ class DuckingApp(tk.Tk):
             self.comp_enabled.set(False)
             self.limiter_enabled.set(False)
             self.lufs_enabled.set(False)
-            self.lufs_target_var.set("-16")
+            self.lufs_target_var.set("-18")
             self.preset_help.config(
                 text="Turns down mic bleed while preserving the recorded voice."
             )
@@ -1653,13 +1589,13 @@ class DuckingApp(tk.Tk):
             self.gain_db_var.set("0")
             self.comp_enabled.set(True)
             self.comp_thresh_var.set("-24")
-            self.comp_ratio_var.set("2.5")
+            self.comp_ratio_var.set("2.0")
             self.comp_attack_var.set("10")
             self.comp_release_var.set("150")
             self.limiter_enabled.set(True)
             self.limiter_ceil_var.set("-1.0")
             self.lufs_enabled.set(True)
-            self.lufs_target_var.set("-16")
+            self.lufs_target_var.set("-18")
             self.preset_help.config(
                 text="Creates cleaned stems and a mastered mono mix ready for editing."
             )
@@ -1845,18 +1781,20 @@ class DuckingApp(tk.Tk):
             # Step 3: Build cross-track ducking envelopes
             # This compares RMS levels between tracks to determine who's speaking
             self._update_status("Computing cross-track ducking envelopes...")
-            envelope_a, envelope_b, ducking_diagnostics = (
-                build_validated_ducking_envelopes(
-                    mono_a,
-                    mono_b,
-                    sr_a,
-                    regions_a,
-                    regions_b,
-                    fade_ms=settings["fade_ms"],
-                    duck_db=settings["duck_db"],
-                    dominance_db=settings["dominance_db"],
-                    require_two_speakers=settings.get("master_enabled", False),
-                )
+            (
+                envelope_a,
+                envelope_b,
+                ducking_diagnostics,
+            ) = build_validated_ducking_envelopes(
+                mono_a,
+                mono_b,
+                sr_a,
+                regions_a,
+                regions_b,
+                fade_ms=settings["fade_ms"],
+                duck_db=settings["duck_db"],
+                dominance_db=settings["dominance_db"],
+                require_two_speakers=settings.get("master_enabled", False),
             )
 
             if ducking_diagnostics["ducking_bypassed"]:
@@ -1888,9 +1826,9 @@ class DuckingApp(tk.Tk):
                     envelope_a = np.ones(len(mono_a), dtype=np.float32)
                     envelope_b = np.ones(len(mono_b), dtype=np.float32)
                     ducking_diagnostics["ducking_bypassed"] = True
-                    ducking_stage["decision"] = (
-                        "bypassed after attenuation check failed"
-                    )
+                    ducking_stage[
+                        "decision"
+                    ] = "bypassed after attenuation check failed"
             self._update_progress(28)
 
             # Step 4: Process each track through the audio chain
@@ -1930,9 +1868,40 @@ class DuckingApp(tk.Tk):
             )
             data_b["speech_regions"] = regions_b
 
+            report_a = validate_track(
+                data_a["input_audio"],
+                data_a["output_audio"],
+                data_a["sr"],
+                data_a["envelope"],
+                data_a["speech_regions"],
+                settings,
+                data_a["limiter_gain"],
+            )
+            report_b = validate_track(
+                data_b["input_audio"],
+                data_b["output_audio"],
+                data_b["sr"],
+                data_b["envelope"],
+                data_b["speech_regions"],
+                settings,
+                data_b["limiter_gain"],
+            )
+
             master_path = None
             master_diagnostics = None
             if settings.get("master_enabled", False):
+                failed_stem_checks = [
+                    f"Speaker {speaker}: {name}"
+                    for speaker, report in (("A", report_a), ("B", report_b))
+                    for name, passed in report["checks"].items()
+                    if not passed
+                ]
+                if failed_stem_checks:
+                    raise ValueError(
+                        "A cleaned stem failed its podcast-ready checks "
+                        f"({', '.join(failed_stem_checks)}). The cleaned stems "
+                        "were preserved, but no file was labeled podcast-ready."
+                    )
                 mix_diagnostics = validate_mix_stage(
                     data_a["output_audio"],
                     data_b["output_audio"],
@@ -1969,24 +1938,6 @@ class DuckingApp(tk.Tk):
             self._update_status("Running quality checks...")
             self._update_progress(91)
 
-            report_a = validate_track(
-                data_a["input_audio"],
-                data_a["output_audio"],
-                data_a["sr"],
-                data_a["envelope"],
-                data_a["speech_regions"],
-                settings,
-                data_a["limiter_gain"],
-            )
-            report_b = validate_track(
-                data_b["input_audio"],
-                data_b["output_audio"],
-                data_b["sr"],
-                data_b["envelope"],
-                data_b["speech_regions"],
-                settings,
-                data_b["limiter_gain"],
-            )
             self._update_progress(95)
 
             # Check ducking effectiveness per track
@@ -2036,11 +1987,11 @@ class DuckingApp(tk.Tk):
                     f"\nTrue peak: {master_diagnostics['true_peak_db']:.1f} dBFS"
                     f"\nLimiter >1 dB: "
                     f"{master_diagnostics['limited_over_1_pct']:.1f}% of file"
-                    f"\nBus-compressor ratio selected: "
-                    f"{master_diagnostics['compressor_ratio']:.1f}:1 after "
-                    f"{len(master_diagnostics['attempts'])} attempt(s)"
-                    f"\nLoudness correction passes: "
-                    f"{master_diagnostics['loudness_correction_passes']}"
+                    f"\nFixed final gain: "
+                    f"{master_diagnostics['fixed_gain_db']:.1f} dB"
+                    f"\nMaster compressor: off"
+                    f"\nPeak-to-loudness ratio: "
+                    f"{master_diagnostics['plr_db']:.1f} dB"
                     f"\nSpeaker balance: "
                     f"{master_diagnostics['speaker_balance_db']:.1f} dB"
                 )

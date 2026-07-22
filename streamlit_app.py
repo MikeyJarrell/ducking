@@ -26,7 +26,10 @@ from scipy.ndimage import uniform_filter1d, minimum_filter1d, median_filter
 # ============================================================
 
 VAD_SAMPLE_RATE = 16000
-MASTER_LIMITING_MAX_PERCENT = 6.0
+PODCAST_STEM_TARGET_LUFS = -19.0
+PODCAST_MASTER_TARGET_LUFS = -18.0
+MASTER_LIMITING_MAX_PERCENT = 1.0
+MASTER_SPEAKER_BALANCE_MAX_DB = 3.0
 
 
 # ============================================================
@@ -593,48 +596,25 @@ def apply_true_peak_limiter(
     return result, 100 * limited_samples / max(measured_samples, 1)
 
 
-def _master_candidate(premix, sr, target_lufs, true_peak_ceiling_db, compressor_ratio):
-    """Create one mastering candidate for later acceptance testing."""
-    master = apply_compressor(premix, sr, -24.0, compressor_ratio, 10, 150)
-    master = apply_lufs_normalization(
-        master,
-        sr,
-        target_lufs=target_lufs,
-        ceiling_db=true_peak_ceiling_db,
-        peak_percentile=99.9,
-    )
+def _master_candidate(premix, sr, target_lufs, true_peak_ceiling_db):
+    """Apply one fixed gain change and the final true-peak safety limiter."""
+    premix_lufs = measure_lufs(premix, sr)
+    fixed_gain_db = target_lufs - premix_lufs
+    master = premix * (10 ** (fixed_gain_db / 20.0))
     master, limited_pct = apply_true_peak_limiter(
         master, sr, ceiling_db=true_peak_ceiling_db
     )
-
-    correction_passes = 0
     integrated_lufs = measure_lufs(master, sr)
-    for _ in range(3):
-        shortfall_db = target_lufs - integrated_lufs
-        if shortfall_db <= 0.05:
-            break
-        master *= 10 ** (shortfall_db / 20.0)
-        master, correction_limited_pct = apply_true_peak_limiter(
-            master, sr, ceiling_db=true_peak_ceiling_db, release_ms=15
-        )
-        # Repeated passes often revisit the same isolated transients. Adding
-        # percentages double-counts those time regions and can make a gentle
-        # result look like sustained limiting. Keep the widest affected share;
-        # loudness_correction_passes separately records repeated work.
-        limited_pct = max(limited_pct, correction_limited_pct)
-        correction_passes += 1
-        true_peak_db = 20 * np.log10(measure_true_peak(master) + 1e-12)
-        if true_peak_db > true_peak_ceiling_db:
-            master *= 10 ** ((true_peak_ceiling_db - true_peak_db) / 20.0)
-        integrated_lufs = measure_lufs(master, sr)
-
     true_peak_db = 20 * np.log10(measure_true_peak(master) + 1e-12)
+    plr_db = true_peak_db - integrated_lufs
     return master.astype(np.float32), {
+        "premix_lufs": float(premix_lufs),
+        "fixed_gain_db": float(fixed_gain_db),
         "integrated_lufs": float(integrated_lufs),
         "true_peak_db": float(true_peak_db),
         "limited_over_1_pct": float(limited_pct),
-        "compressor_ratio": float(compressor_ratio),
-        "loudness_correction_passes": correction_passes,
+        "plr_db": float(plr_db),
+        "master_compressor_ratio": None,
     }
 
 
@@ -642,63 +622,52 @@ def build_podcast_master(
     track_a,
     track_b,
     sr,
-    target_lufs=-16.0,
+    target_lufs=PODCAST_MASTER_TARGET_LUFS,
     true_peak_ceiling_db=-1.0,
     speaker_a_mask=None,
     speaker_b_mask=None,
 ):
     """Build and accept only a master that passes every final quality gate."""
     premix = mix_to_mono(track_a) + mix_to_mono(track_b)
-    attempts = []
-    for compressor_ratio in (2.0, 3.0, 4.0, 6.0):
-        master, diagnostics = _master_candidate(
-            premix,
-            sr,
-            target_lufs,
-            true_peak_ceiling_db,
-            compressor_ratio,
-        )
-        speaker_a_db = _masked_rms_db(master, speaker_a_mask)
-        speaker_b_db = _masked_rms_db(master, speaker_b_mask)
-        presence_required = speaker_a_mask is not None or speaker_b_mask is not None
-        speaker_balance_db = abs(speaker_a_db - speaker_b_db)
-        checks = {
-            "finite_audio": bool(np.all(np.isfinite(master))),
-            "duration_preserved": len(master) == len(premix),
-            "loudness_on_target": abs(diagnostics["integrated_lufs"] - target_lufs)
-            <= 1.0,
-            "true_peak_safe": diagnostics["true_peak_db"]
-            <= true_peak_ceiling_db + 0.05,
-            # The nine-episode Backstory regression corpus includes one
-            # high-crest-factor outlier at 5.90%. Keep a narrow 6% ceiling so
-            # that verified case passes without accepting sustained limiting.
-            "limiting_gentle": diagnostics["limited_over_1_pct"]
-            <= MASTER_LIMITING_MAX_PERCENT,
-            "both_speakers_audible": not presence_required
-            or (
-                np.isfinite(speaker_a_db)
-                and np.isfinite(speaker_b_db)
-                and min(speaker_a_db, speaker_b_db) > -50
-                and speaker_balance_db <= 10
-            ),
+    master, diagnostics = _master_candidate(
+        premix, sr, target_lufs, true_peak_ceiling_db
+    )
+    speaker_a_db = _masked_rms_db(master, speaker_a_mask)
+    speaker_b_db = _masked_rms_db(master, speaker_b_mask)
+    presence_required = speaker_a_mask is not None or speaker_b_mask is not None
+    speaker_balance_db = abs(speaker_a_db - speaker_b_db)
+    checks = {
+        "finite_audio": bool(np.all(np.isfinite(master))),
+        "duration_preserved": len(master) == len(premix),
+        "no_clipped_samples": float(np.max(np.abs(master))) < 1.0,
+        "loudness_on_target": abs(diagnostics["integrated_lufs"] - target_lufs) <= 1.0,
+        "true_peak_safe": diagnostics["true_peak_db"] <= true_peak_ceiling_db + 0.05,
+        "limiting_gentle": diagnostics["limited_over_1_pct"]
+        <= MASTER_LIMITING_MAX_PERCENT,
+        "both_speakers_audible": not presence_required
+        or (
+            np.isfinite(speaker_a_db)
+            and np.isfinite(speaker_b_db)
+            and min(speaker_a_db, speaker_b_db) > -50
+            and speaker_balance_db <= MASTER_SPEAKER_BALANCE_MAX_DB
+        ),
+    }
+    diagnostics.update(
+        {
+            "checks": checks,
+            "checks_passed": bool(all(checks.values())),
+            "speaker_a_db": speaker_a_db,
+            "speaker_b_db": speaker_b_db,
+            "speaker_balance_db": speaker_balance_db,
         }
-        attempts.append({"compressor_ratio": compressor_ratio, "checks": checks})
-        if all(checks.values()):
-            diagnostics.update(
-                {
-                    "checks": checks,
-                    "checks_passed": True,
-                    "attempts": attempts,
-                    "speaker_balance_db": speaker_balance_db,
-                }
-            )
-            return master, diagnostics
+    )
+    if diagnostics["checks_passed"]:
+        return master, diagnostics
 
-    failed = [name for name, passed in attempts[-1]["checks"].items() if not passed]
+    failed = [name for name, passed in checks.items() if not passed]
     raise ValueError(
-        "The final master failed its automatic quality checks after four "
-        f"compression attempts ({', '.join(failed)}). No file was labeled "
-        "podcast-ready."
+        "The final fixed-gain master failed its automatic quality checks "
+        f"({', '.join(failed)}). No file was labeled podcast-ready."
     )
 
 
@@ -713,7 +682,7 @@ def process_track(audio, sr, envelope, settings):
 
     track_target = settings["lufs_target"]
     if settings.get("master_enabled", False):
-        track_target -= 3.0
+        track_target = PODCAST_STEM_TARGET_LUFS
 
     if settings["lufs_enabled"] and settings["comp_enabled"]:
         result = apply_lufs_normalization(
@@ -742,14 +711,33 @@ def process_track(audio, sr, envelope, settings):
             ),
         )
 
-    # Limit
+    limiter_gain = np.ones(len(envelope), dtype=np.float32)
     if settings["limiter_enabled"]:
         stem_ceiling = settings["limiter_ceiling"]
         if settings.get("master_enabled", False):
             stem_ceiling = min(stem_ceiling, -3.0)
-        result = apply_limiter(result, sr, ceiling_db=stem_ceiling, release_ms=15)
+        result, limiter_gain = apply_limiter(
+            result,
+            sr,
+            ceiling_db=stem_ceiling,
+            release_ms=15,
+            return_gain=True,
+        )
 
-    return result
+    return result, limiter_gain
+
+
+def validate_podcast_stem(input_audio, output_audio, sr, envelope, limiter_gain):
+    """Reject a stem that is unsafe or requires sustained limiting."""
+    reduction_db = -20 * np.log10(np.maximum(limiter_gain, 1e-12))
+    output_lufs = measure_lufs_speech_only(output_audio, sr, envelope)
+    return {
+        "finite_audio": bool(np.all(np.isfinite(output_audio))),
+        "duration_preserved": len(output_audio) == len(input_audio),
+        "no_clipped_samples": float(np.max(np.abs(output_audio))) < 1.0,
+        "loudness_on_target": abs(output_lufs - PODCAST_STEM_TARGET_LUFS) <= 2.0,
+        "limiting_gentle": float(np.mean(reduction_db > 1.0) * 100) <= 3.0,
+    }
 
 
 # ============================================================
@@ -783,10 +771,10 @@ def _apply_web_preset():
     st.session_state.fade_ms = 150
     st.session_state.duck_db = -15 if ready else -12
     st.session_state.comp_enabled = ready
-    st.session_state.comp_ratio = 2.5
+    st.session_state.comp_ratio = 2.0
     st.session_state.comp_release = 150
     st.session_state.lufs_enabled = ready
-    st.session_state.lufs_target = -16
+    st.session_state.lufs_target = -18
     st.session_state.limiter_enabled = ready
 
 
@@ -851,7 +839,7 @@ with st.expander("Advanced Settings"):
         with c1:
             comp_threshold = st.number_input("Threshold (dB)", -40, 0, -24, 1)
         with c2:
-            comp_ratio = st.number_input("Ratio", 1.0, 20.0, 2.5, 0.5, key="comp_ratio")
+            comp_ratio = st.number_input("Ratio", 1.0, 20.0, 2.0, 0.5, key="comp_ratio")
         with c3:
             comp_attack = st.number_input("Attack (ms)", 1, 50, 10, 1)
         with c4:
@@ -868,9 +856,9 @@ with st.expander("Advanced Settings"):
             "Enable LUFS normalization", value=podcast_ready, key="lufs_enabled"
         )
         lufs_target = (
-            st.number_input("LUFS target", -24, -10, -16, 1, key="lufs_target")
+            st.number_input("LUFS target", -24, -10, -18, 1, key="lufs_target")
             if lufs_enabled
-            else -16
+            else -18
         )
     with c2:
         limiter_enabled = st.checkbox(
@@ -1007,20 +995,39 @@ if file_a and file_b:
             progress.progress(35, text="Processing Speaker A...")
 
             # Process tracks one at a time to save memory
-            result_a = process_track(audio_a, sr_a, env_a, settings)
+            result_a, limiter_gain_a = process_track(audio_a, sr_a, env_a, settings)
             progress.progress(55, text="Processing Speaker B...")
 
-            result_b = process_track(audio_b, sr_b, env_b, settings)
+            result_b, limiter_gain_b = process_track(audio_b, sr_b, env_b, settings)
             progress.progress(70, text="Generating quality report...")
 
             # Quality metrics (use original audio before freeing)
             input_lufs_a = measure_lufs(audio_a, sr_a)
             input_lufs_b = measure_lufs(audio_b, sr_b)
-            del audio_a, audio_b  # Free input audio after measuring
 
             master = None
             master_metrics = None
             if settings["master_enabled"]:
+                stem_checks = {
+                    "Speaker A": validate_podcast_stem(
+                        audio_a, result_a, sr_a, env_a, limiter_gain_a
+                    ),
+                    "Speaker B": validate_podcast_stem(
+                        audio_b, result_b, sr_b, env_b, limiter_gain_b
+                    ),
+                }
+                failed_stem_checks = [
+                    f"{speaker}: {name}"
+                    for speaker, checks in stem_checks.items()
+                    for name, passed in checks.items()
+                    if not passed
+                ]
+                if failed_stem_checks:
+                    raise ValueError(
+                        "A cleaned stem failed its podcast-ready checks "
+                        f"({', '.join(failed_stem_checks)}). No file was labeled "
+                        "podcast-ready."
+                    )
                 mix_metrics = validate_mix_stage(result_a, result_b, env_a, env_b, sr_a)
                 if not mix_metrics["passed"]:
                     failed = [
@@ -1042,6 +1049,8 @@ if file_a and file_b:
                     speaker_a_mask=mix_metrics["speaker_a_mask"],
                     speaker_b_mask=mix_metrics["speaker_b_mask"],
                 )
+
+            del audio_a, audio_b  # Free input audio after validation.
 
             output_lufs_a = measure_lufs_speech_only(result_a, sr_a, env_a)
             output_lufs_b = measure_lufs_speech_only(result_b, sr_b, env_b)
@@ -1110,8 +1119,8 @@ if file_a and file_b:
                     f"PASS · {master_metrics['integrated_lufs']:.1f}",
                     f"{master_metrics['true_peak_db']:.1f} true peak",
                     f"Limiter >1 dB: {master_metrics['limited_over_1_pct']:.1f}%",
-                    f"{master_metrics['compressor_ratio']:.1f}:1, "
-                    f"{len(master_metrics['attempts'])} attempt(s)",
+                    f"Fixed gain: {master_metrics['fixed_gain_db']:.1f} dB; "
+                    "master compressor off",
                 ]
 
         except Exception as e:

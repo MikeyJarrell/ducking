@@ -23,7 +23,7 @@ DEFAULT_EPISODES = [
     "GRao",
     "Iyoha",
     "Lowe",
-    "Mrao",
+    "MRao",
     "Weigel",
 ]
 
@@ -32,11 +32,11 @@ PODCAST_SETTINGS = {
     "gain_db": 0,
     "comp_enabled": True,
     "comp_threshold": -24,
-    "comp_ratio": 2.5,
+    "comp_ratio": 2.0,
     "comp_attack": 10,
     "comp_release": 150,
     "lufs_enabled": True,
-    "lufs_target": -16,
+    "lufs_target": -18,
     "limiter_enabled": True,
     "limiter_ceiling": -1,
     "master_enabled": True,
@@ -74,6 +74,16 @@ def plain_values(value):
     return value
 
 
+def limiter_diagnostics(gain):
+    """Summarize how often a stem limiter reduces level audibly."""
+    reduction_db = -20 * np.log10(np.maximum(gain, 1e-12))
+    return {
+        "limited_over_1_pct": float(np.mean(reduction_db > 1.0) * 100),
+        "limited_over_3_pct": float(np.mean(reduction_db > 3.0) * 100),
+        "max_reduction_db": float(np.max(reduction_db)),
+    }
+
+
 def verify_with_ffmpeg(path):
     """Measure the rendered master independently with FFmpeg EBU R128."""
     completed = subprocess.run(
@@ -96,13 +106,16 @@ def verify_with_ffmpeg(path):
     summaries = completed.stderr.split("Summary:")
     summary = summaries[-1]
     loudness = re.search(r"I:\s+(-?\d+(?:\.\d+)?) LUFS", summary)
+    loudness_range = re.search(r"LRA:\s+(-?\d+(?:\.\d+)?) LU", summary)
     true_peak = re.search(r"Peak:\s+(-?\d+(?:\.\d+)?) dBFS", summary)
-    if not loudness or not true_peak:
+    if not loudness or not loudness_range or not true_peak:
         raise RuntimeError("FFmpeg did not return its expected EBU R128 summary.")
     lufs = float(loudness.group(1))
+    lra = float(loudness_range.group(1))
     peak_db = float(true_peak.group(1))
     return {
         "integrated_lufs": lufs,
+        "loudness_range_lu": lra,
         "true_peak_db": peak_db,
         "passed": abs(lufs - PODCAST_SETTINGS["lufs_target"]) <= 1.0
         and peak_db <= PODCAST_SETTINGS["limiter_ceiling"] + 0.1,
@@ -119,6 +132,10 @@ def validate_episode(root, episode, model, vad_helper):
     guest_sr, guest, guest_dtype = ducking.load_wav(guest_path)
     if sr != guest_sr or len(host) != len(guest):
         raise ValueError("The raw host and guest tracks are not synchronized.")
+    if sr != 48000:
+        raise ValueError(f"Expected 48 kHz sources, found {sr} Hz.")
+    if not np.all(np.isfinite(host)) or not np.all(np.isfinite(guest)):
+        raise ValueError("A source contains non-finite audio samples.")
 
     host_mono = ducking.get_mono(host)
     guest_mono = ducking.get_mono(guest)
@@ -184,11 +201,25 @@ def validate_episode(root, episode, model, vad_helper):
         if not mix["passed"]:
             raise RuntimeError(f"Mix gate failed: {mix['checks']}")
 
+        stem_limiting = {
+            "host": limiter_diagnostics(host_data["limiter_gain"]),
+            "guest": limiter_diagnostics(guest_data["limiter_gain"]),
+        }
+        dense_stems = [
+            role
+            for role, metrics in stem_limiting.items()
+            if metrics["limited_over_1_pct"] > 3.0
+        ]
+        if dense_stems:
+            raise RuntimeError(
+                "Stem limiter exceeded the 3% activity gate: " + ", ".join(dense_stems)
+            )
+
         master, mastering = ducking.build_podcast_master(
             host_data["output_audio"],
             guest_data["output_audio"],
             sr,
-            target_lufs=-16,
+            target_lufs=PODCAST_SETTINGS["lufs_target"],
             true_peak_ceiling_db=-1,
             speaker_a_mask=mix["speaker_a_mask"],
             speaker_b_mask=mix["speaker_b_mask"],
@@ -218,6 +249,7 @@ def validate_episode(root, episode, model, vad_helper):
             "detection": detection,
             "ducking": ducking_check,
             "stem_peak_db": {"host": host_peak_db, "guest": guest_peak_db},
+            "stem_limiting": stem_limiting,
             "mix": mix_summary,
             "master": mastering,
             "ffmpeg": independent,

@@ -22,4 +22,4 @@
 
 ## Current focus
 
-HEAD is `4eb9aa4` ("fix: validate podcast-ready mastering"), the commit Backstory currently pins as its tested baseline (nine-episode regression corpus, 17-test unit suite, linting, independent FFmpeg checks — see backstory/AGENTS.md). No open work tracked here as of 2026-07-21.
+Ducking is feature-complete for its current scope. The Podcast-ready preset uses the listening-selected E pipeline: 2:1 stem compression, fixed −19 LUFS stem staging, no master-bus compression, one fixed final gain change toward −18 LUFS, and a true-peak safety limiter. The implementation passed the nine-episode Backstory regression corpus, the 19-test unit suite, syntax checks, linting, and independent FFmpeg measurements on 2026-07-21. Backstory pins the exact tested commit in its own AGENTS.md and audio-engine handoff.

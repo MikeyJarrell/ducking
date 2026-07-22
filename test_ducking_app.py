@@ -215,10 +215,10 @@ class ProcessingSafetyTests(unittest.TestCase):
             "gain_enabled": False,
             "gain_db": 0,
             "lufs_enabled": True,
-            "lufs_target": -16,
+            "lufs_target": -18,
             "comp_enabled": True,
             "comp_threshold": -24,
-            "comp_ratio": 2.5,
+            "comp_ratio": 2.0,
             "comp_attack": 10,
             "comp_release": 150,
             "limiter_enabled": True,
@@ -298,7 +298,9 @@ class ProcessingSafetyTests(unittest.TestCase):
         rumble_ratio = np.sqrt(np.mean(filtered_rumble**2)) / np.sqrt(
             np.mean(rumble**2)
         )
-        voice_ratio = np.sqrt(np.mean(filtered_voice**2)) / np.sqrt(np.mean(voice**2))
+        voice_ratio = np.sqrt(np.mean(filtered_voice**2)) / np.sqrt(
+            np.mean(voice**2)
+        )
         self.assertLess(rumble_ratio, 0.15)
         self.assertGreater(voice_ratio, 0.9)
 
@@ -308,7 +310,7 @@ class ProcessingSafetyTests(unittest.TestCase):
         track_a = np.zeros(len(time), dtype=np.float32)
         track_b = np.zeros(len(time), dtype=np.float32)
         track_a[: sr * 2] = 0.03 * np.sin(2 * np.pi * 180 * time[: sr * 2])
-        track_b[sr * 2 :] = 0.02 * np.sin(2 * np.pi * 240 * time[sr * 2 :])
+        track_b[sr * 2 :] = 0.03 * np.sin(2 * np.pi * 240 * time[sr * 2 :])
 
         a_mask = np.zeros(len(time), dtype=bool)
         b_mask = np.zeros(len(time), dtype=bool)
@@ -318,19 +320,20 @@ class ProcessingSafetyTests(unittest.TestCase):
             track_a,
             track_b,
             sr,
-            target_lufs=-16,
+            target_lufs=-18,
             true_peak_ceiling_db=-1,
             speaker_a_mask=a_mask,
             speaker_b_mask=b_mask,
         )
 
         self.assertLessEqual(diagnostics["true_peak_db"], -1 + 1e-5)
-        self.assertAlmostEqual(diagnostics["integrated_lufs"], -16, delta=1.0)
+        self.assertAlmostEqual(diagnostics["integrated_lufs"], -18, delta=1.0)
         self.assertTrue(diagnostics["checks_passed"])
         self.assertTrue(all(diagnostics["checks"].values()))
+        self.assertIsNone(diagnostics["master_compressor_ratio"])
         self.assertEqual(master.dtype, np.float32)
 
-    def test_master_recovers_from_rare_high_crest_peaks(self):
+    def test_master_rejects_unprotected_high_crest_peaks(self):
         sr = 16000
         time = np.arange(sr * 6) / sr
         track_a = np.zeros(len(time), dtype=np.float32)
@@ -342,57 +345,81 @@ class ProcessingSafetyTests(unittest.TestCase):
         a_mask = np.arange(len(time)) < sr * 3
         b_mask = ~a_mask
 
+        with self.assertRaisesRegex(ValueError, "loudness_on_target"):
+            ducking_app.build_podcast_master(
+                track_a,
+                track_b,
+                sr,
+                target_lufs=-18,
+                true_peak_ceiling_db=-1,
+                speaker_a_mask=a_mask,
+                speaker_b_mask=b_mask,
+            )
+
+    @patch("ducking_app.apply_compressor")
+    def test_master_never_calls_bus_compressor(self, compressor):
+        sr = 16000
+        time = np.arange(sr * 4) / sr
+        track_a = (0.02 * np.sin(2 * np.pi * 180 * time)).astype(np.float32)
+        track_b = (0.01 * np.sin(2 * np.pi * 240 * time)).astype(np.float32)
+
         _, diagnostics = ducking_app.build_podcast_master(
             track_a,
             track_b,
             sr,
-            target_lufs=-16,
+            target_lufs=-18,
             true_peak_ceiling_db=-1,
-            speaker_a_mask=a_mask,
-            speaker_b_mask=b_mask,
         )
 
-        self.assertTrue(diagnostics["checks_passed"])
-        self.assertGreaterEqual(diagnostics["loudness_correction_passes"], 1)
-        self.assertAlmostEqual(diagnostics["integrated_lufs"], -16, delta=1.0)
-        self.assertLessEqual(diagnostics["true_peak_db"], -1 + 0.05)
+        compressor.assert_not_called()
+        self.assertIsNone(diagnostics["master_compressor_ratio"])
+        self.assertEqual(diagnostics["fixed_gain_db"], -18 - diagnostics["premix_lufs"])
 
-    @patch("ducking_app.measure_true_peak", return_value=0.5)
-    @patch("ducking_app.measure_lufs", side_effect=[-20.0, -18.0, -16.0])
-    @patch("ducking_app.apply_true_peak_limiter")
-    @patch(
-        "ducking_app.apply_lufs_normalization",
-        side_effect=lambda audio, *_args, **_kwargs: audio,
-    )
-    @patch(
-        "ducking_app.apply_compressor",
-        side_effect=lambda audio, *_args, **_kwargs: audio,
-    )
-    def test_repeated_limiter_passes_do_not_double_count_time(
-        self,
-        _compressor,
-        _normalization,
-        _limiter,
-        _loudness,
-        _true_peak,
-    ):
-        iteration_percentages = iter([4.0, 3.0, 2.0])
-        _limiter.side_effect = lambda audio, *_args, **_kwargs: (
-            audio,
-            next(iteration_percentages),
-        )
+    def test_master_rejects_unbalanced_speakers(self):
+        sr = 16000
+        time = np.arange(sr * 4) / sr
+        track_a = np.zeros(len(time), dtype=np.float32)
+        track_b = np.zeros(len(time), dtype=np.float32)
+        track_a[: sr * 2] = 0.04 * np.sin(2 * np.pi * 180 * time[: sr * 2])
+        track_b[sr * 2 :] = 0.01 * np.sin(2 * np.pi * 240 * time[sr * 2 :])
+        a_mask = np.arange(len(time)) < sr * 2
+        b_mask = ~a_mask
+
+        with self.assertRaisesRegex(ValueError, "both_speakers_audible"):
+            ducking_app.build_podcast_master(
+                track_a,
+                track_b,
+                sr,
+                target_lufs=-18,
+                true_peak_ceiling_db=-1,
+                speaker_a_mask=a_mask,
+                speaker_b_mask=b_mask,
+            )
+
+    @patch("ducking_app._master_candidate")
+    def test_master_rejects_sustained_final_limiting(self, candidate):
         audio = np.ones(16000, dtype=np.float32) * 0.01
-
-        _, diagnostics = ducking_app._master_candidate(
+        candidate.return_value = (
             audio,
-            16000,
-            target_lufs=-16,
-            true_peak_ceiling_db=-1,
-            compressor_ratio=2,
+            {
+                "premix_lufs": -19.0,
+                "fixed_gain_db": 1.0,
+                "integrated_lufs": -18.0,
+                "true_peak_db": -2.0,
+                "limited_over_1_pct": 1.01,
+                "plr_db": 16.0,
+                "master_compressor_ratio": None,
+            },
         )
 
-        self.assertEqual(diagnostics["loudness_correction_passes"], 2)
-        self.assertEqual(diagnostics["limited_over_1_pct"], 4.0)
+        with self.assertRaisesRegex(ValueError, "limiting_gentle"):
+            ducking_app.build_podcast_master(
+                audio,
+                audio,
+                16000,
+                target_lufs=-18,
+                true_peak_ceiling_db=-1,
+            )
 
 
 if __name__ == "__main__":

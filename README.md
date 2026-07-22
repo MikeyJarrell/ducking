@@ -23,14 +23,18 @@ The default **Natural cleanup** preset changes only the mic-bleed level. It
 does not boost, compress, or limit either voice.
 
 The **Podcast-ready** preset removes low-frequency rumble, matches the two
-speakers' levels, applies gentle compression, and creates a combined mono
-master. The master targets -16 LUFS integrated loudness and a -1 dBFS true-peak
-ceiling, following [Apple Podcasts' audio guidance](https://podcasters.apple.com/support/893-audio-requirements).
+speakers' levels, applies gentle 2:1 compression to each voice, and creates a
+combined mono master. The final mix receives one fixed gain adjustment and a
+true-peak safety limiter; it does not use master-bus compression. The master
+targets -18 LUFS integrated loudness and a -1 dBFS true-peak ceiling, following
+[Audio Engineering Society guidance for speech](https://aes.org/wp-content/uploads/2024/01/20210924_TD1008_v3.13.pdf).
 
 Every automatic stage has an acceptance check. Ducking must measurably reduce
 the non-speaker mic while leaving the active mic unchanged; the unmastered mix
 must retain both speakers; and the master must pass its loudness, true-peak,
-limiter-activity, duration, and speaker-presence checks. Uncertain speaker
+limiter-activity, duration, speaker-balance, and speaker-presence checks. The
+final limiter may reduce more than 1 dB on no more than 1% of the program, and
+the two speakers must remain within 3 dB during isolated speech. Uncertain speaker
 detection gets one conservative retry. Natural cleanup then bypasses unsafe
 ducking, while Podcast-ready stops without creating a misleading mastered file.
 
@@ -128,6 +132,16 @@ Requires **python.org Python 3.12** (from [python.org/downloads](https://www.pyt
 - **MP3**, **FLAC**, **OGG** (the web version accepts these too)
 
 Output is always WAV.
+
+## Project files
+
+- [ducking_app.py](ducking_app.py) contains the desktop application and canonical audio engine.
+- [streamlit_app.py](streamlit_app.py) contains the web application and matching audio engine.
+- [batch_validate.py](batch_validate.py) runs the private episode regression corpus.
+- [test_ducking_app.py](test_ducking_app.py) contains the unit tests.
+- [setup.py](setup.py) and [make-app.sh](make-app.sh) build the macOS application.
+- [PROJECT_INDEX.md](PROJECT_INDEX.md) records project status.
+- [AGENTS.md](AGENTS.md) contains project instructions; [CLAUDE.md](CLAUDE.md) imports them for Claude Code.
 
 ## How it works (for the curious)
 
