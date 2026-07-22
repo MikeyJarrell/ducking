@@ -7,10 +7,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
+import torch
 
 from ducking_core.engine import (
-    PODCAST_MASTER_TARGET_LUFS,
-    apply_gain_db,
+    apply_gain_envelope,
     build_podcast_master,
     build_validated_ducking_envelopes,
     format_quality_report,
@@ -19,14 +19,15 @@ from ducking_core.engine import (
     load_vad_model,
     load_wav,
     master_output_path,
-    mix_to_mono,
     process_track_audio,
     resample_to_16k,
     save_wav,
     validate_ducking_stage,
+    validate_ducking,
     validate_mix_stage,
     validate_track,
 )
+
 
 class DuckingApp(tk.Tk):
     """Main application window."""

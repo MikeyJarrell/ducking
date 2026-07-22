@@ -222,10 +222,10 @@ The project has two different test layers.
 Run the unit suite with:
 
 ```bash
-python3 -m unittest -q test_ducking_app.py test_ducking_core_contracts.py
+python3 -m unittest -q test_ducking_app.py test_ducking_core_contracts.py test_ducking_core_engine.py
 ```
 
-The 19 engine tests use controlled synthetic signals to protect model loading, synchronized-file safety, speaker calibration, smooth envelopes, overlap handling, compression and limiter behavior, stem preservation, speaker balance, and master rejection. The 11 core-contract tests protect the versioned interface shared with Backstory. A passing unit suite means the code still obeys those defined rules. It does not test a new real recording.
+The 19 signal-processing tests use controlled synthetic signals to protect model loading, synchronized-file safety, speaker calibration, smooth envelopes, overlap handling, compression and limiter behavior, stem preservation, speaker balance, and master rejection. Eleven contract tests protect the versioned interface shared with Backstory. Five package tests protect synchronized edits, exact theme markers, media inspection, and an end-to-end synthetic render. A passing unit suite means the code still obeys those defined rules. It does not test a new real recording.
 
 The full acceptance harness runs Podcast-ready on a directory of real episode pairs:
 
@@ -366,19 +366,19 @@ Adding theme music or making later edits changes program loudness and peaks. Mea
 
 ## Project files
 
-- [ducking_app.py](ducking_app.py) contains the desktop application and canonical audio engine.
+- [ducking_core](ducking_core) is the installable `ducking-core` package. It owns the canonical signal processing, contracts, synchronized edits, theme assembly, media inspection, encoding, and concrete `DuckingCore` service.
 
-- [streamlit_app.py](streamlit_app.py) contains the web application and matching audio engine.
+- [ducking_app.py](ducking_app.py) contains only the desktop interface and imports its audio behavior from `ducking_core`.
+
+- [streamlit_app.py](streamlit_app.py) contains only the web interface and web-specific upload/download conversion; it imports its processing behavior from `ducking_core`.
 
 - [batch_validate.py](batch_validate.py) runs the private episode regression corpus.
 
 - [test_ducking_app.py](test_ducking_app.py) contains the unit tests.
 
-- [ducking_core](ducking_core) defines the versioned, application-independent request, result, quality, warning, and error contracts used to share the engine with Backstory.
+- [test_ducking_core_contracts.py](test_ducking_core_contracts.py) and [test_ducking_core_engine.py](test_ducking_core_engine.py) protect the shared boundary and package behavior.
 
-- [test_ducking_core_contracts.py](test_ducking_core_contracts.py) protects that shared boundary and confirms that its defaults match the validated Podcast-ready pipeline.
-
-- [setup.py](setup.py) and [make-app.sh](make-app.sh) build the macOS application.
+- [pyproject.toml](pyproject.toml) and [setup.py](setup.py) build the reusable Python 3.12 wheel. [make-app.sh](make-app.sh) uses the same setup file to build the macOS application.
 
 - [PROJECT_INDEX.md](PROJECT_INDEX.md) records project status.
 

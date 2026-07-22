@@ -24,7 +24,6 @@ from .contracts import (
 )
 from .editing import apply_identical_edits
 from .engine import (
-    apply_gain_db,
     apply_limiter,
     build_podcast_master,
     build_validated_ducking_envelopes,
@@ -118,7 +117,9 @@ class DuckingCore:
 
     def _load_pair(
         self, host: SourceAsset, guest: SourceAsset
-    ) -> tuple[AudioMetadata, AudioMetadata, int, np.ndarray, np.ndarray, np.dtype, np.dtype]:
+    ) -> tuple[
+        AudioMetadata, AudioMetadata, int, np.ndarray, np.ndarray, np.dtype, np.dtype
+    ]:
         host_metadata = self.inspect(host)
         guest_metadata = self.inspect(guest)
         if (
@@ -182,7 +183,9 @@ class DuckingCore:
         )
 
     @staticmethod
-    def _engine_settings(request: RenderRequest, *, gain_db: float) -> dict[str, object]:
+    def _engine_settings(
+        request: RenderRequest, *, gain_db: float
+    ) -> dict[str, object]:
         settings = request.settings
         podcast_ready = settings.preset is ProcessingPreset.PODCAST_READY_E
         return {
@@ -243,20 +246,22 @@ class DuckingCore:
                 resample_to_16k(get_mono(guest_audio), sample_rate),
                 threshold=request.settings.vad_threshold,
             )
-            host_envelope, guest_envelope, detection = (
-                build_validated_ducking_envelopes(
-                    get_mono(host_audio),
-                    get_mono(guest_audio),
-                    sample_rate,
-                    host_regions,
-                    guest_regions,
-                    fade_ms=request.settings.fade_ms,
-                    duck_db=request.settings.duck_db,
-                    dominance_db=request.settings.dominance_db,
-                    require_two_speakers=(
-                        request.settings.preset is ProcessingPreset.PODCAST_READY_E
-                    ),
-                )
+            (
+                host_envelope,
+                guest_envelope,
+                detection,
+            ) = build_validated_ducking_envelopes(
+                get_mono(host_audio),
+                get_mono(guest_audio),
+                sample_rate,
+                host_regions,
+                guest_regions,
+                fade_ms=request.settings.fade_ms,
+                duck_db=request.settings.duck_db,
+                dominance_db=request.settings.dominance_db,
+                require_two_speakers=(
+                    request.settings.preset is ProcessingPreset.PODCAST_READY_E
+                ),
             )
             ducking_gate = validate_ducking_stage(
                 host_audio,
@@ -290,7 +295,11 @@ class DuckingCore:
                     host_audio, host_result, sample_rate, host_envelope, host_limiter
                 ),
                 "guest": validate_podcast_stem(
-                    guest_audio, guest_result, sample_rate, guest_envelope, guest_limiter
+                    guest_audio,
+                    guest_result,
+                    sample_rate,
+                    guest_envelope,
+                    guest_limiter,
                 ),
             }
             if request.settings.preset is ProcessingPreset.PODCAST_READY_E and not all(
@@ -308,9 +317,10 @@ class DuckingCore:
                 guest_envelope,
                 sample_rate,
             )
-            if request.settings.preset is ProcessingPreset.PODCAST_READY_E and not mix_gate[
-                "passed"
-            ]:
+            if (
+                request.settings.preset is ProcessingPreset.PODCAST_READY_E
+                and not mix_gate["passed"]
+            ):
                 raise CoreProcessingError(
                     CoreErrorCode.MIX_GATE_FAILED,
                     "Both speakers did not survive the unmastered sum.",
@@ -336,8 +346,7 @@ class DuckingCore:
                 )
                 master_metrics = {
                     "integrated_lufs": measure_lufs(master, sample_rate),
-                    "true_peak_db": 20
-                    * np.log10(measure_true_peak(master) + 1e-12),
+                    "true_peak_db": 20 * np.log10(measure_true_peak(master) + 1e-12),
                     "limited_over_1_pct": 0.0,
                     "speaker_balance_db": 0.0,
                     "checks": {"finite_audio": bool(np.all(np.isfinite(master)))},
@@ -381,9 +390,7 @@ class DuckingCore:
                 )
             if request.output.write_speech_master:
                 master_path = request.output.directory / "speech_master.wav"
-                write_derived_wav(
-                    master_path, sample_rate, master, np.dtype("float32")
-                )
+                write_derived_wav(master_path, sample_rate, master, np.dtype("float32"))
                 outputs.append(
                     self._output_asset(OutputKind.SPEECH_MASTER, master_path)
                 )
@@ -429,19 +436,13 @@ class DuckingCore:
                 ),
                 clipped_sample_count=int(np.sum(np.abs(final_audio) >= 1.0)),
                 host_speech_lufs=float(
-                    measure_lufs_speech_only(
-                        host_result, sample_rate, host_envelope
-                    )
+                    measure_lufs_speech_only(host_result, sample_rate, host_envelope)
                 ),
                 guest_speech_lufs=float(
-                    measure_lufs_speech_only(
-                        guest_result, sample_rate, guest_envelope
-                    )
+                    measure_lufs_speech_only(guest_result, sample_rate, guest_envelope)
                 ),
                 host_speech_coverage_pct=float(np.mean(host_envelope > 0.5) * 100),
-                guest_speech_coverage_pct=float(
-                    np.mean(guest_envelope > 0.5) * 100
-                ),
+                guest_speech_coverage_pct=float(np.mean(guest_envelope > 0.5) * 100),
                 limiter_over_1_db_pct=float(master_metrics["limited_over_1_pct"]),
                 speaker_balance_db=float(master_metrics["speaker_balance_db"]),
                 duration_ms=round(len(final_audio) * 1000 / sample_rate),

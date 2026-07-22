@@ -3,12 +3,20 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 import numpy as np
 import soundfile as sf
 from scipy.io import wavfile
 
-from ducking_core import DuckingCore, SourceAsset, SourceRole, ThemeAssets
+from ducking_core import (
+    DuckingCore,
+    OutputTargets,
+    RenderRequest,
+    SourceAsset,
+    SourceRole,
+    ThemeAssets,
+)
 from ducking_core.editing import apply_identical_edits, kept_sample_intervals
 from ducking_core.media import assemble_themed_program, sha256_file
 
@@ -100,6 +108,47 @@ class ConcreteCoreTests(unittest.TestCase):
             self.assertEqual(metadata.channels, 1)
             self.assertEqual(metadata.duration_ms, 1_000)
             self.assertTrue(metadata.finite_samples)
+
+    def test_render_runs_the_package_pipeline_and_returns_three_assets(self):
+        sample_rate = 48_000
+        samples = sample_rate * 4
+        time = np.arange(samples) / sample_rate
+        tone = np.sin(2 * np.pi * 220 * time).astype(np.float32)
+        midpoint = samples // 2
+        host_audio = np.empty(samples, dtype=np.float32)
+        guest_audio = np.empty(samples, dtype=np.float32)
+        host_audio[:midpoint] = 0.20 * tone[:midpoint]
+        guest_audio[:midpoint] = 0.05 * tone[:midpoint]
+        host_audio[midpoint:] = 0.02 * tone[midpoint:]
+        guest_audio[midpoint:] = 0.20 * tone[midpoint:]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            host_path = root / "host.wav"
+            guest_path = root / "guest.wav"
+            output = root / "output"
+            wavfile.write(host_path, sample_rate, host_audio)
+            wavfile.write(guest_path, sample_rate, guest_audio)
+            request = RenderRequest(
+                idempotency_key="synthetic-render",
+                host=SourceAsset(host_path, SourceRole.HOST, sha256_file(host_path)),
+                guest=SourceAsset(
+                    guest_path, SourceRole.GUEST, sha256_file(guest_path)
+                ),
+                output=OutputTargets(output),
+            )
+            core = DuckingCore()
+            core._vad_model = Mock()
+            core._vad_helper = lambda audio, _model, **_kwargs: [
+                {"start": 0, "end": len(audio)}
+            ]
+
+            result = core.render(request)
+
+            self.assertEqual(result.idempotency_key, "synthetic-render")
+            self.assertEqual(len(result.outputs), 3)
+            self.assertTrue(result.quality.checks_passed)
+            self.assertTrue(all(asset.path.is_file() for asset in result.outputs))
 
 
 if __name__ == "__main__":

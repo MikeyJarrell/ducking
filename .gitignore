@@ -5,5 +5,7 @@ __pycache__/
 *.WAV
 build/
 dist/
+*.egg-info/
+*.whl
 .venv-build/
 Ducking.icns

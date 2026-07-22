@@ -23,3 +23,10 @@ SESSLOG:2026-07-21 19:21
 
 ### Context
 The README now explains every app control and every visible or batch-report measurement, including thresholds, failure actions, a worked example, and the limits of automated checks. Documentation checks passed, and all 30 current tests passed on `codex/ducking-core-contract`.
+## 2026-07-21 — Shared core package extraction
+
+- Moved the canonical signal-processing implementation into installable `ducking-core` version `1.0.0`.
+- Reduced the desktop and web applications to interface-specific behavior; both now import Ducking processing from the package.
+- Added synchronized source-time edits, configurable crossfades, exact theme-marker assembly, media inspection, checksummed outputs, and the concrete `DuckingCore` contract implementation.
+- Passed 35 unit tests, built the Python 3.12 wheel, and passed all nine private Backstory episodes through the package-backed harness.
+- Compared the post-extraction report with the pinned baseline: loudness and true peak were identical, limiter percentages were identical, and the largest other change was less than 0.000009 dB.
