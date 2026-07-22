@@ -22,4 +22,4 @@
 
 ## Current focus
 
-Ducking is feature-complete for its current scope. The Podcast-ready preset uses the listening-selected E pipeline: 2:1 stem compression, fixed −19 LUFS stem staging, no master-bus compression, one fixed final gain change toward −18 LUFS, and a true-peak safety limiter. The implementation passed the nine-episode Backstory regression corpus, the 19-test unit suite, syntax checks, linting, and independent FFmpeg measurements on 2026-07-21. Backstory pins the exact tested commit in its own AGENTS.md and audio-engine handoff.
+Ducking is feature-complete for its current scope. The Podcast-ready preset uses the listening-selected E pipeline: 2:1 stem compression, fixed −19 LUFS stem staging, no master-bus compression, one fixed final gain change toward −18 LUFS, and a true-peak safety limiter. The implementation passed the nine-episode Backstory regression corpus, the 19-test unit suite, syntax checks, linting, and independent FFmpeg measurements on 2026-07-21. Core interface version `1.0.0` is defined in `ducking_core.contracts`; the next task is to move the canonical engine behind that boundary without changing behavior.

@@ -39,8 +39,11 @@ class CoreContractTests(unittest.TestCase):
         self.assertEqual(settings.stem_precompression_lufs, -22.0)
         self.assertEqual(settings.compressor_ratio, 2.0)
         self.assertEqual(settings.stem_target_lufs, -19.0)
+        self.assertEqual(settings.stem_limiter_over_1_db_max_pct, 3.0)
         self.assertEqual(settings.master_target_lufs, -18.0)
         self.assertEqual(settings.true_peak_ceiling_db, -1.0)
+        self.assertEqual(settings.master_limiter_over_1_db_max_pct, 1.0)
+        self.assertEqual(settings.speaker_balance_max_db, 3.0)
 
     def test_edit_intervals_are_half_open_and_nonempty(self):
         interval = EditInterval(1_000, 2_000)
@@ -67,6 +70,27 @@ class CoreContractTests(unittest.TestCase):
                 self.guest,
                 OutputTargets(Path("output")),
                 cuts=(EditInterval(100, 500), EditInterval(400, 700)),
+            )
+
+    def test_render_request_rejects_adjacent_cuts(self):
+        with self.assertRaisesRegex(ValueError, "adjacent"):
+            RenderRequest(
+                "request-1",
+                self.host,
+                self.guest,
+                OutputTargets(Path("output")),
+                cuts=(EditInterval(100, 500), EditInterval(500, 700)),
+            )
+
+    def test_render_request_keeps_cuts_inside_trim(self):
+        with self.assertRaisesRegex(ValueError, "within the trim"):
+            RenderRequest(
+                "request-1",
+                self.host,
+                self.guest,
+                OutputTargets(Path("output")),
+                trim=EditInterval(1_000, 10_000),
+                cuts=(EditInterval(500, 700),),
             )
 
     def test_render_request_requires_theme_for_speech_anchors(self):

@@ -125,8 +125,13 @@ class ProcessingSettings:
     compressor_release_ms: int = 150
     stem_target_lufs: float = -19.0
     stem_peak_ceiling_db: float = -3.0
+    stem_loudness_tolerance_lu: float = 2.0
+    stem_limiter_over_1_db_max_pct: float = 3.0
     master_target_lufs: float = -18.0
     true_peak_ceiling_db: float = -1.0
+    master_loudness_tolerance_lu: float = 1.0
+    master_limiter_over_1_db_max_pct: float = 1.0
+    speaker_balance_max_db: float = 3.0
 
     def __post_init__(self) -> None:
         if not 0.0 < self.vad_threshold < 1.0:
@@ -182,8 +187,12 @@ class RenderRequest:
         if ordered_cuts != self.cuts:
             raise ValueError("Cuts must be ordered by source start time.")
         for previous, current in zip(self.cuts, self.cuts[1:]):
-            if current.start_ms < previous.end_ms:
-                raise ValueError("Cuts cannot overlap.")
+            if current.start_ms <= previous.end_ms:
+                raise ValueError("Cuts cannot overlap or be adjacent.")
+        if self.trim is not None:
+            for cut in self.cuts:
+                if cut.start_ms < self.trim.start_ms or cut.end_ms > self.trim.end_ms:
+                    raise ValueError("Cuts must fall within the trim interval.")
         if self.theme is None and (
             self.intro_speech_anchor_ms is not None
             or self.outro_final_word_anchor_ms is not None
