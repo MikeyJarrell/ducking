@@ -24,6 +24,7 @@ from .contracts import (
     WarningCode,
     contract_to_dict,
 )
+from .service import DuckingCore, ENGINE_VERSION
 
 __all__ = [
     "CORE_API_VERSION",
@@ -48,4 +49,6 @@ __all__ = [
     "TrimSuggestion",
     "WarningCode",
     "contract_to_dict",
+    "DuckingCore",
+    "ENGINE_VERSION",
 ]

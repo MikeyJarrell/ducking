@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-import ducking_app as ducking
+from ducking_core import engine as ducking
 
 
 DEFAULT_EPISODES = [

@@ -37,6 +37,7 @@ class OutputKind(StrEnum):
     CLEANED_HOST = "cleaned_host"
     CLEANED_GUEST = "cleaned_guest"
     SPEECH_MASTER = "speech_master"
+    PROGRAM_MASTER = "program_master"
 
 
 class WarningCode(StrEnum):
@@ -117,6 +118,7 @@ class ProcessingSettings:
     duck_db: float = -15.0
     fade_ms: int = 150
     dominance_db: float = 3.0
+    edit_crossfade_ms: int = 10
     highpass_hz: float = 65.0
     stem_precompression_lufs: float = -22.0
     compressor_threshold_db: float = -24.0
@@ -138,6 +140,8 @@ class ProcessingSettings:
             raise ValueError("The voice-detection threshold must be between 0 and 1.")
         if self.fade_ms < 0:
             raise ValueError("The fade duration cannot be negative.")
+        if self.edit_crossfade_ms < 0:
+            raise ValueError("The edit crossfade cannot be negative.")
         if self.compressor_ratio < 1.0:
             raise ValueError("The compressor ratio cannot be below 1:1.")
         if self.compressor_attack_ms <= 0 or self.compressor_release_ms <= 0:
@@ -151,9 +155,14 @@ class OutputTargets:
     directory: Path
     write_cleaned_stems: bool = True
     write_speech_master: bool = True
+    write_program_master: bool = False
 
     def __post_init__(self) -> None:
-        if not self.write_cleaned_stems and not self.write_speech_master:
+        if not (
+            self.write_cleaned_stems
+            or self.write_speech_master
+            or self.write_program_master
+        ):
             raise ValueError("At least one output must be requested.")
 
 
@@ -183,6 +192,8 @@ class RenderRequest:
             raise ValueError("The guest source must have the guest role.")
         if self.host.path == self.guest.path:
             raise ValueError("The host and guest sources must be different files.")
+        if abs(self.host_gain_db) > 6.0 or abs(self.guest_gain_db) > 6.0:
+            raise ValueError("Speaker gain adjustments are limited to 6 dB.")
         ordered_cuts = tuple(sorted(self.cuts, key=lambda item: item.start_ms))
         if ordered_cuts != self.cuts:
             raise ValueError("Cuts must be ordered by source start time.")

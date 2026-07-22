@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-import ducking_app
+from ducking_core import engine as ducking_app
 
 
 class VadLoadingTests(unittest.TestCase):
@@ -356,7 +356,7 @@ class ProcessingSafetyTests(unittest.TestCase):
                 speaker_b_mask=b_mask,
             )
 
-    @patch("ducking_app.apply_compressor")
+    @patch("ducking_core.engine.apply_compressor")
     def test_master_never_calls_bus_compressor(self, compressor):
         sr = 16000
         time = np.arange(sr * 4) / sr
@@ -396,7 +396,7 @@ class ProcessingSafetyTests(unittest.TestCase):
                 speaker_b_mask=b_mask,
             )
 
-    @patch("ducking_app._master_candidate")
+    @patch("ducking_core.engine._master_candidate")
     def test_master_rejects_sustained_final_limiting(self, candidate):
         audio = np.ones(16000, dtype=np.float32) * 0.01
         candidate.return_value = (
