@@ -382,6 +382,8 @@ Adding theme music or making later edits changes program loudness and peaks. Mea
 
 - [PROJECT_INDEX.md](PROJECT_INDEX.md) records project status.
 
+- [SESSION_LOG.md](SESSION_LOG.md) records major project decisions and handoffs in chronological order.
+
 - [AGENTS.md](AGENTS.md) contains project instructions; [CLAUDE.md](CLAUDE.md) imports them for Claude Code.
 
 Generated environments, application bundles, build directories, and tool caches are local artifacts. `.venv-build`, `build`, `dist`, and `.mypy_cache` are not source documentation or release inputs.
