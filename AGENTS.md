@@ -23,4 +23,4 @@
 
 ## Current focus
 
-Ducking is feature-complete for its current scope. The Podcast-ready preset uses the listening-selected E pipeline: 2:1 stem compression, fixed −19 LUFS stem staging, no master-bus compression, one fixed final gain change toward −18 LUFS, and a true-peak safety limiter. The canonical implementation now lives in installable package `ducking-core` version `1.0.0`. Both interfaces and the acceptance harness consume that package. The 35-test suite and all nine Backstory regression episodes pass, with numerical changes far below the pinned Task 2 tolerances.
+Status, pipeline details, and test results live in [PROJECT_INDEX.md](PROJECT_INDEX.md) — read that, not this section, for the current state.
