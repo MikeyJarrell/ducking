@@ -7,7 +7,7 @@
 - [README.md](README.md) — what it does, presets, install/run instructions for end users
 - `ducking_core/` — canonical, versioned, application-independent audio package
 - `ducking_app.py` — desktop Tkinter interface
-- `streamlit_app.py` — web app, live at https://mikeyjarrell-ducking.hf.space/ (Hugging Face Spaces). **`mikeyjarrell.com/ducking` is NOT live** — it returned 404 when checked 2026-08-01, though three docs claimed it was a mirror. Setting that redirect up on the personal GitHub Pages site is an open option, not a done thing.
+- `streamlit_app.py` — web app, live at https://mikeyjarrell-ducking.hf.space/ (Hugging Face Spaces), reachable as **mikeyjarrell.com/ducking**. That vanity URL is a static redirect committed at `static/ducking/index.html` in the personal site repo (`MikeyJarrell/MikeyJarrell.github.io`). It broke on 2026-08-01 — it used to route through a 404-page passthrough to a *private* repo, and GitHub Pages will not serve a site from a private repo on the Free plan — and was fixed by serving it directly. If it 404s again, check that file, not the private repo.
 - `batch_validate.py` — acceptance-check harness for the ducking/mastering pipeline
 - `test_ducking_app.py` — unit tests (`VadLoadingTests`, `DuckingEnvelopeTests`, `ProcessingSafetyTests`)
 - [PROJECT_INDEX.md](PROJECT_INDEX.md) — dashboard
