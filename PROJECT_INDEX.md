@@ -5,7 +5,7 @@ last-reviewed: 2026-07-31
 | Workstream | Status | Notes |
 |---|---|---|
 | Desktop app | complete | [ducking_app.py](ducking_app.py); packaged via [make-app.sh](make-app.sh) / [setup.py](setup.py) (py2app) |
-| Web app | complete | [streamlit_app.py](streamlit_app.py), deployed to Hugging Face Spaces and mirrored at mikeyjarrell.com/ducking |
+| Web app | complete | [streamlit_app.py](streamlit_app.py), live at https://mikeyjarrell-ducking.hf.space/ (deploy with `scripts/deploy-hf.sh`). `mikeyjarrell.com/ducking` is not set up — 404 as of 2026-08-01 |
 | Tests | passing | 35 tests across signal processing, contracts, synchronized edits, theme markers, media inspection, and end-to-end rendering |
 | Acceptance harness | passing | [batch_validate.py](batch_validate.py) — nine private episodes plus independent FFmpeg measurements |
 | Shared core package | complete | Installable `ducking-core` version `1.0.0`; both interfaces and the acceptance harness import the package |

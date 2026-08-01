@@ -7,7 +7,7 @@
 - [README.md](README.md) — what it does, presets, install/run instructions for end users
 - `ducking_core/` — canonical, versioned, application-independent audio package
 - `ducking_app.py` — desktop Tkinter interface
-- `streamlit_app.py` — web app deployed to Hugging Face Spaces and mirrored at mikeyjarrell.com/ducking
+- `streamlit_app.py` — web app, live at https://mikeyjarrell-ducking.hf.space/ (Hugging Face Spaces). **`mikeyjarrell.com/ducking` is NOT live** — it returned 404 when checked 2026-08-01, though three docs claimed it was a mirror. Setting that redirect up on the personal GitHub Pages site is an open option, not a done thing.
 - `batch_validate.py` — acceptance-check harness for the ducking/mastering pipeline
 - `test_ducking_app.py` — unit tests (`VadLoadingTests`, `DuckingEnvelopeTests`, `ProcessingSafetyTests`)
 - [PROJECT_INDEX.md](PROJECT_INDEX.md) — dashboard

@@ -303,7 +303,7 @@ Ducking is designed for two synchronized close microphones in one room. It does 
 
 ## Try it online
 
-Use [mikeyjarrell.com/ducking](https://mikeyjarrell.com/ducking), upload both recordings, select a preset, and download the results. The web version accepts WAV, MPEG-1 Audio Layer III (MP3), Free Lossless Audio Codec (FLAC), MPEG-4 Audio (M4A), Ogg, and Advanced Audio Coding (AAC) inputs. Output is WAV.
+Use [the Ducking web app](https://mikeyjarrell-ducking.hf.space/), upload both recordings, select a preset, and download the results. The web version accepts WAV, MPEG-1 Audio Layer III (MP3), Free Lossless Audio Codec (FLAC), MPEG-4 Audio (M4A), Ogg, and Advanced Audio Coding (AAC) inputs. Output is WAV.
 
 The web app processes uploads on a remote server. Use the local app for sensitive recordings or when upload size and connection speed matter.
 
