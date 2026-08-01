@@ -81,7 +81,17 @@ def load_vad_model():
     return load_core_vad_model()
 
 
-st.set_page_config(page_title="Podcast Mic Ducking", layout="centered")
+# Show the app icon in the browser tab. The same icon.png feeds the macOS .app
+# build. If it is ever missing (a stripped-down deployment, say), fall back to a
+# microphone emoji rather than crashing the whole page.
+_ICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
+_PAGE_ICON = _ICON_PATH if os.path.exists(_ICON_PATH) else "🎙️"
+
+st.set_page_config(
+    page_title="Podcast Mic Ducking",
+    page_icon=_PAGE_ICON,
+    layout="centered",
+)
 
 st.title("Podcast Mic Ducking")
 st.markdown(
