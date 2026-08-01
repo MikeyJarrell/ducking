@@ -14,7 +14,7 @@
 
 ## Rules that always apply
 
-- GitHub is canonical; Hugging Face Spaces hosts the deployed web app (auto-synced from GitHub, not edited directly).
+- GitHub is canonical; Hugging Face Spaces hosts the deployed web app. **The Space does NOT auto-sync from GitHub** — it is a separate `hf` git remote that only advances when someone pushes to it (`git push hf main`). Verified 2026-07-31: `hf/main` sat at `733c263` (2026-03-14) while `origin/main` had moved four-plus months ahead, so the live Space runs old code. Check `git ls-remote hf` before assuming the deployed app matches this repo. Deploying is outward-facing — ask Mikey first.
 - Every automated processing stage needs an acceptance check (loudness, true-peak, limiter activity, speaker presence) — see README "How it works" and `batch_validate.py`. Don't ship a stage that can silently produce a bad file.
 - Desktop app (`ducking_app.py`) and web app (`streamlit_app.py`) import all ducking and mastering behavior from `ducking_core`; do not copy processing functions back into either interface.
 - macOS `.app` packaging (`make-app.sh`, `setup.py`, py2app) requires python.org framework Python 3.12, not Anaconda's build. `.venv-build/` and `dist/`/`build/` are gitignored local build artifacts, never committed.
