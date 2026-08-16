@@ -1,6 +1,6 @@
 # AGENTS.md — Ducking
 
-**What this is:** Podcast microphone-bleed cleanup app. Takes two synchronized mic recordings from a two-person podcast, detects who's speaking with Silero VAD, and ducks the inactive mic to remove echo/bleed. Personal repo, not research. Shared audio engine source for [Backstory](~/backstory) — Backstory's AGENTS.md pins the exact Ducking commit it depends on; when the mastering pipeline changes here, check whether that pin needs bumping.
+**What this is:** Podcast microphone-bleed cleanup app. Takes two synchronized mic recordings from a two-person podcast, detects who's speaking with Silero VAD, and ducks the inactive mic to remove echo/bleed. Personal repo, not research. Shared audio engine source for [Backstory](~/backstory) — Backstory's `docs/audio-core-contract.md` pins the exact Ducking commit it depends on; when the mastering pipeline changes here, check whether that pin needs bumping.
 
 ## Start here
 
