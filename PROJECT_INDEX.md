@@ -1,6 +1,6 @@
 # PROJECT_INDEX — Ducking
 
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-18
 
 | Workstream | Status | Notes |
 |---|---|---|
@@ -17,6 +17,7 @@ last-reviewed: 2026-07-31
 
 ## Change log
 
+- 2026-08-01 — Web app now sets the browser-tab icon from `icon.png`; added `scripts/deploy-hf.sh` (builds a fresh LFS-tracked snapshot commit and force-pushes it to the `hf` remote, since a plain `git push hf main` is rejected over the binary icon in history). Also corrected two doc claims: the Hugging Face Space does not auto-sync from GitHub, and `mikeyjarrell.com/ducking` is now a working static redirect (was previously documented as live when it 404'd, then fixed for real).
 - 2026-07-21 — Extracted the canonical engine into installable `ducking-core` version `1.0.0`; 35 tests and all nine private regression episodes pass.
 - 2026-07-21 — Added core contract version `1.0.0` for Backstory Task 1 without changing signal-processing behavior.
 - 2026-07-21 — Podcast-ready mastering finalized: 2:1 stem compression, fixed −19 LUFS stem staging, no master-bus compression, fixed-gain −18 LUFS master, 1% final-limiter gate, and 3 dB speaker-balance gate.
