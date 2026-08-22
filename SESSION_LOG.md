@@ -14,8 +14,8 @@ SESSLOG:2026-07-21 19:21
 - (none)
 
 ### Follow-ups
-- [ ] Continue the shared-core extraction behind `ducking_core` without changing the documented behavior.
-- [ ] Rerun the 30 unit and contract tests and the nine-episode corpus after any engine behavior change.
+- [x] Continue the shared-core extraction behind `ducking_core` without changing the documented behavior. Done 2026-07-21: extracted into installable `ducking-core` version `1.0.0` (see PROJECT_INDEX.md change log).
+- [ ] Rerun the 30 unit and contract tests and the nine-episode corpus after any engine behavior change. (Standing instruction, not a one-time task — test suite has since grown to 35; see README.md "Automated tests and the batch report".)
 
 ### Files
 - [modified] `/Users/mikey/ducking/README.md` — expanded from a short installation guide into a complete operating, mastering, troubleshooting, and validation reference.

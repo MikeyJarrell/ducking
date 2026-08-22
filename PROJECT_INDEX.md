@@ -1,6 +1,6 @@
 # PROJECT_INDEX — Ducking
 
-last-reviewed: 2026-08-18
+last-reviewed: 2026-08-22
 
 | Workstream | Status | Notes |
 |---|---|---|
