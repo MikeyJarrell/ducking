@@ -9,3 +9,6 @@ dist/
 *.whl
 .venv-build/
 Ducking.icns
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
