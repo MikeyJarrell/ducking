@@ -22,7 +22,7 @@ SESSLOG:2026-07-21 19:21
 - [created] `/Users/mikey/ducking/SESSION_LOG.md` — records the documentation closeout and next engine step.
 
 ### Context
-The README now explains every app control and every visible or batch-report measurement, including thresholds, failure actions, a worked example, and the limits of automated checks. Documentation checks passed, and all 30 current tests passed on `codex/ducking-core-contract`.
+The README now explains every app control and every visible or batch-report measurement, including thresholds, failure actions, a worked example, and the limits of automated checks. Documentation checks passed, and all 30 current tests passed on the `codex/ducking-core-contract` branch (merged into `main` and deleted 2026-07-31; the repo has a single `main` branch now).
 ## 2026-07-21 — Shared core package extraction
 
 - Moved the canonical signal-processing implementation into installable `ducking-core` version `1.0.0`.
