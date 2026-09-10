@@ -1,0 +1,66 @@
+#!/bin/bash
+# Pre-commit guard: keep bulk data out of git.
+#
+# Installed per-repo as .githooks/pre-commit, activated with:
+#   git config core.hooksPath .githooks
+# (core.hooksPath is LOCAL git config, so it must be set once on every Mac —
+# it does not travel with the repo. `agent-config/scripts/install-hooks.sh`
+# does it for every registered project.)
+#
+# Why this exists: on 2026-08-09 the brazil-tax project moved into git while its
+# 78GB of data stayed in Dropbox. That gave every script two possible roots, and
+# 33 call sites were silently pointed at the wrong one. A mis-rooted script does
+# not error — it creates the missing folder and writes into it. Combined with the
+# 20-minute auto-sync job, which commits whatever it finds without looking, that
+# is a direct path from one bad path constant to data in git history. Once a large
+# file is committed it stays in history until someone rewrites it.
+
+set -euo pipefail
+
+HARD_MB=90     # GitHub rejects >100MB outright; stop short of the wall
+WARN_MB=45     # GitHub warns >50MB
+hard=$((HARD_MB * 1024 * 1024))
+warn=$((WARN_MB * 1024 * 1024))
+
+# Directories that must never contain tracked files. Data lives in the bulk
+# store; a repo-local copy means something resolved a path wrongly.
+DATA_DIRS_RE='^(02_data|data)/(raw|clean|interim|cache|validation)/'
+
+blocked=0
+warned=0
+
+# -z / read -d '' so paths with spaces survive
+while IFS= read -r -d '' file; do
+  [ -f "$file" ] || continue
+
+  if [[ "$file" =~ $DATA_DIRS_RE ]]; then
+    echo "BLOCKED  $file"
+    echo "         Lives under a bulk-data directory that must stay out of git."
+    echo "         A script probably resolved its data root to the repo instead of"
+    echo "         the bulk store. Check data_root/DATA_ROOT before committing."
+    blocked=1
+    continue
+  fi
+
+  size=$(wc -c < "$file" | tr -d ' ')
+  if [ "$size" -gt "$hard" ]; then
+    echo "BLOCKED  $file ($((size / 1024 / 1024))MB)"
+    echo "         Over ${HARD_MB}MB. GitHub hard-rejects files above 100MB, and the"
+    echo "         push fails only after the whole pack uploads. Move it to the bulk"
+    echo "         store and reference it by path."
+    blocked=1
+  elif [ "$size" -gt "$warn" ]; then
+    echo "WARNING  $file ($((size / 1024 / 1024))MB) — over ${WARN_MB}MB; GitHub will warn."
+    warned=1
+  fi
+done < <(git diff --cached --name-only --diff-filter=AM -z)
+
+if [ "$blocked" -ne 0 ]; then
+  echo
+  echo "Commit refused. To override for a file you are certain about:"
+  echo "  git commit --no-verify"
+  exit 1
+fi
+
+[ "$warned" -ne 0 ] && echo "(warnings only — commit proceeding)"
+exit 0
