@@ -14,6 +14,12 @@
 # 20-minute auto-sync job, which commits whatever it finds without looking, that
 # is a direct path from one bad path constant to data in git history. Once a large
 # file is committed it stays in history until someone rewrites it.
+#
+# Once the guard has passed, the hook runs agent-config's automatic commit fixes
+# (scripts/pre-commit-fixes.sh), which today curl straight quotes on the lines a
+# commit adds to Markdown. They live in agent-config so that changing them never
+# means re-committing this file in every project. They never block a commit, and on
+# a machine without agent-config they are skipped.
 
 set -euo pipefail
 
@@ -63,4 +69,7 @@ if [ "$blocked" -ne 0 ]; then
 fi
 
 [ "$warned" -ne 0 ] && echo "(warnings only — commit proceeding)"
+
+fixes="${HOME:-}/agent-config/scripts/pre-commit-fixes.sh"
+[ -f "$fixes" ] && { bash "$fixes" || true; }
 exit 0
